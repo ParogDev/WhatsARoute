@@ -94,7 +94,7 @@ public sealed class TravelSettings
     [Menu("Mark the stop to pick", "On the Desert Map: a gold marker around the caravan stop the route wants, with the destination's name")]
     public ToggleNode MarkChosenStop { get; set; } = new(true);
 
-    [Menu("Ring the other stops", "A quiet ring on every other unlocked stop, so the marked one stands out as the one")]
+    [Menu("Ring the alternatives", "A quiet ring on other destinations an open quest also wants (e.g. Keth vs Valley of the Titans); nothing else")]
     public ToggleNode MarkOtherStops { get; set; } = new(true);
 }
 

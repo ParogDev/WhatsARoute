@@ -257,15 +257,18 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         }
         catch (Exception ex) { _why = $"IngameUi.UncompletedQuests: {ex.Message}"; }
         _questObj = null;
+        _altAreas.Clear();
         foreach (var q in _book.Route.Quests)
         {
             if (q.Optional && !Settings.Route.IncludeOptional) continue;
             if (!_quests.TryGetValue(q.Quest, out var st)) continue;
             if (q.States is { Length: > 0 } && Array.IndexOf(q.States, st) < 0) continue;
-            _questObj = q;
-            break;
+            if (_questObj == null) _questObj = q;
+            else _altAreas.Add(q.Area);   // other open objectives: the only other choices worth a ring on the map
         }
     }
+
+    private readonly HashSet<string> _altAreas = new(StringComparer.OrdinalIgnoreCase);
 
     private void ReadTravelMap(double now)
     {
@@ -425,7 +428,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         var disp = ImGui.GetIO().DisplaySize;
         if (Settings.Travel.MarkOtherStops.Value)
             foreach (var s in _map.Stops)
-                if (s != stop && s.Unlocked) Markers.DrawGhostStop(dl, s.Center, s.Size, glow);
+                if (s != stop && s.Unlocked && _altAreas.Contains(s.DestId)) Markers.DrawGhostStop(dl, s.Center, s.Size, glow);
         _markers.DrawStop(dl, stop.Center, stop.Size, disp, stop.DestName.Length > 0 ? stop.DestName : _resolved.Label, core, glow, time, _stopAppearedAt);
     }
 
@@ -499,6 +502,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         dto.QuestObjective = _questObj == null ? null : $"{_questObj.Quest} -> {_questObj.Area} ({_questObj.Label})";
         dto.TravelTo = _resolved.TravelTo;
         dto.TravelMapOpen = _map.Open;
+        if (_map.Open) dto.Notes.Add($"map view: {_map.Mode} ('{_map.Title}')");
         if (_map.Why != null) dto.Notes.Add(_map.Why);
         dto.Notes.Add("view: " + _fresh.Status);
         foreach (var s in _map.Stops)

@@ -39,7 +39,17 @@ public sealed class WorldMapReader
         public string DestId = "", DestName = "";
     }
 
+    /// <summary>
+    /// The same WorldMap element is two views. Its title (WorldMap[3], first visible text) says which:
+    /// "Travel" = the caravan's Desert Map, where the wheels (caravan stops) are what you click;
+    /// "Teleport" = the waypoint view, where each area's own node (the blue orb) is what you click and the wheels are
+    /// drawn but inert. <see cref="Stops"/> holds the clickable choices of the current view either way.
+    /// </summary>
+    public enum View { Unknown, Travel, Teleport }
+
     public readonly List<Stop> Stops = new();
+    public View Mode;
+    public string Title = "";
     public bool Open;
     public string? Why;           // the broken link when the map is open but could not be read
     public double LastScanMs;
@@ -72,6 +82,11 @@ public sealed class WorldMapReader
         if (_areaRows.Count == 0)
             foreach (var a in gc.Files.WorldAreas.EntriesList) _areaRows[a.Address] = (a.Id, a.Name);
 
+        Title = wm.ChildCount > 3 ? FirstText(wm.GetChildAtIndex(3), 0) ?? "" : "";
+        Mode = Title.Equals("Teleport", StringComparison.OrdinalIgnoreCase) ? View.Teleport
+            : Title.Equals("Travel", StringComparison.OrdinalIgnoreCase) ? View.Travel : View.Unknown;
+        if (Mode == View.Unknown) Why = $"WorldMap[3] title '{Title}' is neither Travel nor Teleport: view not recognised";
+
         _dests.Clear();
         var mem = gc.Memory;
         var matched = 0;
@@ -84,12 +99,19 @@ public sealed class WorldMapReader
             matched++;
             var r = n.GetClientRect();
             var c = new Vector2(r.Center.X, r.Center.Y);
-            if (area.id == townAreaId)
+            if (Mode == View.Travel && area.id == townAreaId)
                 Stops.Add(new Stop { Index = i, Node = n, AreaRow = row, Center = c, ScanCenter = c, Size = r.Width, ScanSize = r.Width, Unlocked = n.IsVisible });
-            else if (r.Width >= 80)
+            else if (r.Width >= 80 && n.ChildCount == 0 && (Mode == View.Teleport || area.id != townAreaId))
+            {
+                // An area's own node (content icons - bosses, chests - are nodes with an icon child): the destination
+                // marker, and in the Teleport view the waypoint orb you click.
                 _dests.Add((area.id, area.name, c));
+                if (Mode == View.Teleport)
+                    Stops.Add(new Stop { Index = i, Node = n, AreaRow = row, Center = c, ScanCenter = c, Size = r.Width, ScanSize = r.Width, Unlocked = n.IsVisible, DestId = area.id, DestName = area.name });
+            }
         }
         if (matched == 0) { Why = $"no WorldMap[0][1][2] node (of {root.ChildCount}) has a WorldAreas row at +0x{AreaPtrOffset:X}: offset moved"; return; }
+        if (Mode != View.Travel) return;
         foreach (var s in Stops)
         {
             var best = float.MaxValue;
@@ -121,6 +143,15 @@ public sealed class WorldMapReader
             s.Size = s.ScanSize * scale;
         }
         return true;
+    }
+
+    private static string? FirstText(Element? e, int depth)
+    {
+        if (e == null || depth > 3) return null;
+        if (e.IsVisible && !string.IsNullOrEmpty(e.Text)) return e.Text;
+        for (var i = 0; i < e.ChildCount; i++)
+            if (FirstText(e.GetChildAtIndex(i), depth + 1) is { } t) return t;
+        return null;
     }
 
     private Element? Child(Element e, int i, string where)
