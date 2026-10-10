@@ -72,6 +72,7 @@ public sealed class TargetResolver
         public bool FromMemory;       // the goals are remembered sightings: their entities are not loaded right now
         public string? TravelTo;      // area id when the objective is in another area
         public bool ViaTravelMap;     // the way there is the Desert Map: highlight its stop when the map opens
+        public bool ViaPortal;        // the way there starts with a town portal (the card names the player's portal key)
     }
 
     /// <summary>
@@ -101,6 +102,7 @@ public sealed class TargetResolver
         r.FromMemory = false;
         r.TravelTo = null;
         r.ViaTravelMap = false;
+        r.ViaPortal = false;
         spec = spec.Trim();
         var colon = spec.IndexOf(':');
         var kind = (colon < 0 ? spec : spec[..colon]).Trim().ToLowerInvariant();
