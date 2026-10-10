@@ -38,7 +38,8 @@
       { "Target": "radar:The Heart of Keth", "Label": "Azarian (The Heart of Keth)" }
     ],
     "G2_6": [
-      { "Target": "radar:Ancient Seal", "Label": "Ancient Seal (step on it)", "Note": "Quest state 6 needs all three seals lit before the Clasped Entry opens; lit-seal signal still to be mapped live" },
+      { "Target": "entity:Objects/AncientSeal", "State": "active=1", "Within": 60, "SkipIfNone": true, "Label": "Take the seal's portal back", "Note": "Verified live 2026-10-10: lighting seal N makes AncientSealNPortal (next to it) targetable with state active=1; it returns you to the valley path" },
+      { "Target": "radar:Ancient Seal", "ExcludeNear": { "Entity": "Objects/AncientSeal", "State": "active=1", "Radius": 40 }, "SkipIfNone": true, "Label": "Light the next Ancient Seal (step on it)", "Note": "A seal is lit when its portal is active; a far seal whose portal isn't loaded yet counts as unlit until you get near it" },
       { "Target": "transition:G2_7|entity:Act2/2_6/Objects/TitanGrottoPointOfInterest|radar:The Titan Grotto", "Label": "The Titan Grotto (Clasped Entry)" }
     ],
     "G2_7": [

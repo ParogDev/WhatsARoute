@@ -17,6 +17,21 @@ public sealed class RouteStep
     public string? DoneFlag { get; set; }
     public bool Optional { get; set; }
     public string? Note { get; set; }
+    /// <summary>Skip this step while it has nothing to go to (after the filters below).</summary>
+    public bool SkipIfNone { get; set; }
+    /// <summary>Only goals within this many grid cells of the player.</summary>
+    public int? Within { get; set; }
+    /// <summary>Entity goals must have this StateMachine state, "name=value" (e.g. "active=1").</summary>
+    public string? State { get; set; }
+    /// <summary>Drop goals that have a matching entity in this state nearby (a lit seal has an active portal).</summary>
+    public ExcludeNearRule? ExcludeNear { get; set; }
+}
+
+public sealed class ExcludeNearRule
+{
+    public string Entity { get; set; } = "";
+    public string? State { get; set; }
+    public float Radius { get; set; } = 40;
 }
 
 /// <summary>

@@ -280,6 +280,54 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             if (s.Unlocked && string.Equals(s.DestId, dest, StringComparison.OrdinalIgnoreCase)) { _chosenStop = s; break; }
     }
 
+    /// <summary>
+    /// A step's filters on the resolved goals, all read from the game now: Within (cells from the player), State (the
+    /// goal entity's StateMachine has "name=value"), ExcludeNear (no matching entity in that state within Radius cells:
+    /// a seal whose portal is active is lit). Goals and GoalEntities are parallel for entity goals.
+    /// </summary>
+    private void ApplyStepFilters(RouteStep s, (int x, int y) cell)
+    {
+        if (s.Within == null && s.State == null && s.ExcludeNear == null) return;
+        var r = _resolved;
+        List<Vector2>? exclude = null;
+        if (s.ExcludeNear is { Entity.Length: > 0 } ex)
+        {
+            exclude = new List<Vector2>();
+            foreach (var e in GameController.Entities)
+            {
+                if (!e.IsValid || e.Path?.Contains(ex.Entity, StringComparison.OrdinalIgnoreCase) != true) continue;
+                if (ex.State != null && !HasState(e, ex.State)) continue;
+                if (e.GetComponent<Positioned>() is { } p) exclude.Add(p.GridPos);
+            }
+        }
+        var paired = r.GoalEntities.Count == r.Goals.Count;
+        for (var i = r.Goals.Count - 1; i >= 0; i--)
+        {
+            var g = r.Goals[i];
+            var drop = s.Within is { } w && Math.Max(Math.Abs(g.x - cell.x), Math.Abs(g.y - cell.y)) > w;
+            if (!drop && s.State != null) drop = !paired || !HasState(r.GoalEntities[i].Entity, s.State);
+            if (!drop && exclude != null)
+                foreach (var p in exclude)
+                    if (Vector2.Distance(p, new Vector2(g.x, g.y)) <= s.ExcludeNear!.Radius) { drop = true; break; }
+            if (!drop) continue;
+            r.Goals.RemoveAt(i);
+            if (paired) r.GoalEntities.RemoveAt(i);
+        }
+        if (r.Goals.Count == 0 && r.Why == null) r.Why = $"'{s.Target}': nothing left after the step's filters (Within/State/ExcludeNear)";
+    }
+
+    private static bool HasState(Entity e, string nameEqValue)
+    {
+        var sm = e.GetComponent<StateMachine>();
+        if (sm?.States == null) return false;
+        var eq = nameEqValue.IndexOf('=');
+        var name = eq < 0 ? nameEqValue : nameEqValue[..eq];
+        var want = eq < 0 ? null : nameEqValue[(eq + 1)..];
+        foreach (var st in sm.States)
+            if (string.Equals(st.Name, name, StringComparison.OrdinalIgnoreCase) && (want == null || st.Value.ToString() == want)) return true;
+        return false;
+    }
+
     private bool StepDone(int i, RouteStep s) =>
         _reachedSteps.Contains(i) || (s.DoneFlag != null && _flags.TryGetValue(s.DoneFlag, out var v) && v);
 
@@ -300,12 +348,36 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         }
         else if (Settings.Route.Mode.Value == "Route" && steps.Count > 0)
         {
+            // The first step that is not done and, for SkipIfNone steps, has something to go to right now (after its
+            // filters). Stateless: "take the seal's portal back" exists only while a lit seal's portal is near you.
+            var rt = Stopwatch.GetTimestamp();
             var first = -1;
             for (var i = 0; i < steps.Count; i++)
-                if (!StepDone(i, steps[i]) && (Settings.Route.IncludeOptional || !steps[i].Optional)) { first = i; break; }
+            {
+                var s = steps[i];
+                if (StepDone(i, s) || (!Settings.Route.IncludeOptional && s.Optional)) continue;
+                if (s.SkipIfNone && _stepShift == 0)
+                {
+                    _resolver.Resolve(GameController, _book, s.Target, _areaRaw, _resolved);
+                    ApplyStepFilters(s, cell);
+                    if (_resolved.Goals.Count == 0) continue;
+                    first = i;
+                    break;
+                }
+                first = i;
+                break;
+            }
             if (first < 0) first = steps.Count - 1;
             _stepIndex = Math.Clamp(first + _stepShift, 0, steps.Count - 1);
             spec = steps[_stepIndex].Target;
+            _targetSpec = spec;
+            if (!(steps[_stepIndex].SkipIfNone && _stepShift == 0 && _resolved.Goals.Count > 0))
+            {
+                _resolver.Resolve(GameController, _book, spec, _areaRaw, _resolved);
+                ApplyStepFilters(steps[_stepIndex], cell);
+            }
+            _resolveUs = _resolveUs * 0.8 + 0.2 * Stopwatch.GetElapsedTime(rt).TotalMicroseconds;
+            goto Resolved;
         }
         else
         {
@@ -316,6 +388,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         var rt0 = Stopwatch.GetTimestamp();
         _resolver.Resolve(GameController, _book, spec, _areaRaw, _resolved);
         _resolveUs = _resolveUs * 0.8 + 0.2 * Stopwatch.GetElapsedTime(rt0).TotalMicroseconds;
+        Resolved:
         if (_stepIndex >= 0 && steps[_stepIndex].Label is { Length: > 0 } label) _resolved.Label = label;
         else if (q?.Label is { Length: > 0 } ql && spec == q.Target) _resolved.Label = ql;
         if (_resolved.Goals.Count == 0)
