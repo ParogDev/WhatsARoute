@@ -155,6 +155,12 @@ public sealed class TargetResolver
                 Entities(gc, r, e => e.Path?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true);
                 if (r.Goals.Count == 0) Remembered(r, s => s.Path.Contains(arg, StringComparison.OrdinalIgnoreCase));
                 break;
+            case "click":
+                // An entity you can click right now (quest objects turn targetable one after another).
+                r.Label = arg.Split('/').LastOrDefault() ?? arg;
+                Entities(gc, r, e => IsTargetable(e) && e.Path?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true);
+                if (r.Goals.Count == 0) Remembered(r, s => s.Targetable && s.Path.Contains(arg, StringComparison.OrdinalIgnoreCase));
+                break;
             case "tile":
                 r.Label = arg;
                 Tiles(gc, areaRawName, arg, r);
