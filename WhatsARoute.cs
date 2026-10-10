@@ -502,7 +502,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         dto.QuestObjective = _questObj == null ? null : $"{_questObj.Quest} -> {_questObj.Area} ({_questObj.Label})";
         dto.TravelTo = _resolved.TravelTo;
         dto.TravelMapOpen = _map.Open;
-        if (_map.Open) dto.Notes.Add($"map view: {_map.Mode} ('{_map.Title}')");
+        if (_map.Open) dto.Notes.Add($"map view: {_map.Mode} ('{_map.Title}'), pan: {_map.PanSource}");
         if (_map.Why != null) dto.Notes.Add(_map.Why);
         dto.Notes.Add("view: " + _fresh.Status);
         foreach (var s in _map.Stops)

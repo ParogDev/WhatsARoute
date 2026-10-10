@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using ExileCore2;
 using ExileCore2.PoEMemory;
@@ -36,6 +37,7 @@ public sealed class WorldMapReader
         public Vector2 ScanCenter;    // as scanned
         public float ScanSize;
         public float NodePosX;        // the node's position inside the map, layout units (fixed): to derive the pan
+        public Vector2 NodeLocal;     // the node's top-left inside the pan container, layout units (fixed per node)
         public bool Unlocked;
         public string DestId = "", DestName = "";
     }
@@ -101,17 +103,18 @@ public sealed class WorldMapReader
             var r = n.GetClientRect();
             var c = new Vector2(r.Center.X, r.Center.Y);
             if (Mode == View.Travel && area.id == townAreaId)
-                Stops.Add(new Stop { Index = i, Node = n, AreaRow = row, Center = c, ScanCenter = c, Size = r.Width, ScanSize = r.Width, NodePosX = n.Position.X, Unlocked = n.IsVisible });
+                Stops.Add(new Stop { Index = i, Node = n, AreaRow = row, Center = c, ScanCenter = c, Size = r.Width, ScanSize = r.Width, NodePosX = n.Position.X, NodeLocal = Local(n, root), Unlocked = n.IsVisible });
             else if (r.Width >= 80 && n.ChildCount == 0 && (Mode == View.Teleport || area.id != townAreaId))
             {
                 // An area's own node (content icons - bosses, chests - are nodes with an icon child): the destination
                 // marker, and in the Teleport view the waypoint orb you click.
                 _dests.Add((area.id, area.name, c));
                 if (Mode == View.Teleport)
-                    Stops.Add(new Stop { Index = i, Node = n, AreaRow = row, Center = c, ScanCenter = c, Size = r.Width, ScanSize = r.Width, NodePosX = n.Position.X, Unlocked = n.IsVisible, DestId = area.id, DestName = area.name });
+                    Stops.Add(new Stop { Index = i, Node = n, AreaRow = row, Center = c, ScanCenter = c, Size = r.Width, ScanSize = r.Width, NodePosX = n.Position.X, NodeLocal = Local(n, root), Unlocked = n.IsVisible, DestId = area.id, DestName = area.name });
             }
         }
         if (matched == 0) { Why = $"no WorldMap[0][1][2] node (of {root.ChildCount}) has a WorldAreas row at +0x{AreaPtrOffset:X}: offset moved"; return; }
+        CalibratePan(gc, wm);
         if (Mode != View.Travel) return;
         foreach (var s in Stops)
         {
@@ -133,13 +136,30 @@ public sealed class WorldMapReader
     {
         if (anchor.Node is not { } n || n.Address == 0) return false;
         if (gc.Memory.Read<long>(n.Address + AreaPtrOffset) != anchor.AreaRow) { Why = $"stop {anchor.Index}: node no longer points at its area row (map rebuilt), waiting for the next scan"; return false; }
-        var r = n.GetClientRect();
-        if (r.Width <= 0) return false;
-        var live = new Vector2(r.Center.X + PanCorrectionX(gc, r.X, anchor.NodePosX), r.Center.Y);
-        var scale = anchor.ScanSize > 0 ? r.Width / anchor.ScanSize : 1f;
+        Vector2 live;
+        float width;
+        if (FreshPan(gc) is { } pan)
+        {
+            // Straight from game memory: the HUD's rect (and WorldMap[0].Position) come from cached element memory
+            // and trailed a drag by up to 52 px (measured 2026-10-10 against this raw read: avg 9.4 px).
+            var win = gc.Window.GetWindowRectangle();
+            float sx = win.Width / 2560f, sy = win.Height / 1600f;
+            width = anchor.ScanSize;
+            live = new Vector2(pan.X * sx + anchor.NodeLocal.X * sy + width * 0.5f, (pan.Y + anchor.NodeLocal.Y) * sy + width * 0.5f);
+            PanSource = "fresh";
+        }
+        else
+        {
+            var r = n.GetClientRect();
+            if (r.Width <= 0) return false;
+            width = r.Width;
+            live = new Vector2(r.Center.X + PanCorrectionX(gc, r.X, anchor.NodePosX), r.Center.Y);
+            PanSource = "hud rect (fresh pan unavailable: " + (_panWhy ?? "?") + ")";
+        }
+        var scale = anchor.ScanSize > 0 ? width / anchor.ScanSize : 1f;
         foreach (var s in Stops)
         {
-            if (s == anchor) { s.Center = live; s.Size = r.Width; continue; }
+            if (s == anchor) { s.Center = live; s.Size = width; continue; }
             s.Center = live + (s.ScanCenter - anchor.ScanCenter) * scale;
             s.Size = s.ScanSize * scale;
         }
@@ -163,6 +183,68 @@ public sealed class WorldMapReader
         float sx = win.Width / 2560f, sy = win.Height / 1600f;
         var pan = liveRectX / sy - nodePosX;
         return pan * (sx - sy);
+    }
+
+    // ── Fresh pan: WorldMap[0]'s pan read straight from game memory every frame ─────────────────────────────────
+
+    private delegate bool RawReadFn(IntPtr address, Span<byte> buffer);
+    private RawReadFn? _raw;
+    private bool _rawTried;
+    private long _panAddr;        // WorldMap[0] element
+    private int _panOffset = -1;  // where its pan (Position, 2 floats) sits; calibrated by matching at scan time
+    private string? _panWhy;
+    public string PanSource = "";
+
+    /// <summary>Scan time (map at rest): find WorldMap[0]'s pan in its first 0x400 bytes by its HUD value.</summary>
+    private void CalibratePan(GameController gc, Element wm)
+    {
+        if (wm.ChildCount == 0) { _panWhy = "WorldMap has no children"; _panOffset = -1; return; }
+        var c1 = wm.GetChildAtIndex(0);
+        if (c1.Address == _panAddr && _panOffset >= 0) return;
+        _panAddr = c1.Address; _panOffset = -1;
+        var raw = Raw(gc);
+        if (raw == null) { _panWhy = "leaf memory backend not reachable"; return; }
+        Span<byte> buf = stackalloc byte[0x400];
+        if (!raw((IntPtr)c1.Address, buf)) { _panWhy = $"could not read WorldMap[0] at 0x{c1.Address:X}"; return; }
+        var want = c1.Position;
+        for (var off = 0; off + 8 <= buf.Length; off += 4)
+            if (MathF.Abs(BitConverter.ToSingle(buf.Slice(off, 4)) - want.X) < 0.01f && MathF.Abs(BitConverter.ToSingle(buf.Slice(off + 4, 4)) - want.Y) < 0.01f)
+            { _panOffset = off; _panWhy = null; return; }   // +0x100 on 2026-10-10
+        _panWhy = $"WorldMap[0].Position {want} not found in its first 0x400 bytes (offset moved, or the map was moving during the scan)";
+    }
+
+    private Vector2? FreshPan(GameController gc)
+    {
+        if (_panOffset < 0 || _panAddr == 0 || _raw == null) return null;
+        Span<byte> b = stackalloc byte[8];
+        if (!_raw((IntPtr)(_panAddr + _panOffset), b)) { _panWhy = "fresh pan read failed"; return null; }
+        return new Vector2(BitConverter.ToSingle(b[..4]), BitConverter.ToSingle(b[4..]));
+    }
+
+    private RawReadFn? Raw(GameController gc)
+    {
+        if (_rawTried) return _raw;
+        _rawTried = true;
+        try
+        {
+            const System.Reflection.BindingFlags inst = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+            var mem = (object)gc.Memory;
+            var paged = mem.GetType().GetField("_backend", inst)?.GetValue(mem);
+            var leaf = paged?.GetType().GetFields(inst).FirstOrDefault(f => f.FieldType.Name == "IMemoryBackend")?.GetValue(paged) ?? paged;
+            var m = leaf?.GetType().GetMethod("TryReadMemory", [typeof(IntPtr), typeof(Span<byte>)]);
+            if (leaf != null && m != null) _raw = (RawReadFn)Delegate.CreateDelegate(typeof(RawReadFn), leaf, m);
+        }
+        catch { _raw = null; }
+        return _raw;
+    }
+
+    /// <summary>A node's top-left inside the pan container (sum of Position from the node up to WorldMap[0][1][2]).</summary>
+    private static Vector2 Local(Element node, Element container)
+    {
+        var p = node.Position;
+        for (var e = node.Parent; e != null && e.Address != 0 && e.Address != container.Parent?.Parent?.Address; e = e.Parent)
+            p += e.Position;
+        return p;
     }
 
     private static string? FirstText(Element? e, int depth)
