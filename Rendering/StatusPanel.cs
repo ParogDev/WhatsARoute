@@ -203,7 +203,7 @@ public sealed class StatusPanel
             return ("No route right now", Tone.Warn);
         }
         if (i.ViaPortal && !i.TravelMapOpen)
-            return (i.PortalKey is { Length: > 0 } k ? $"Open a portal ({k}) to head back to town" : "Open a portal to head back to town", Tone.Info);
+            return (i.PortalKey is { Length: > 0 } k ? $"Open a portal ({k}), then take the Desert Map" : "Open a portal to town, then take the Desert Map", Tone.Info);
         if (i.HasTravelTo)
         {
             if (i.TravelMapOpen) return i.StopChosen ? ("Pick the marked stop", Tone.Info) : ("That destination is not on this map yet", Tone.Info);
