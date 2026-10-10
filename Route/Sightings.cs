@@ -57,6 +57,20 @@ public sealed class Sightings
         Flush(pluginDir);
         _area.Clear(); _list.Clear();
         _areaRaw = areaRaw; _hash = hash;
+        // Same instance as before a plugin reload or HUD restart: what was seen is still there (and the next write
+        // replaces this instance's rows, so starting empty would also drop them from the file).
+        if (hash == 0 || areaRaw.Length == 0) return;
+        var file = Path.Combine(pluginDir, "sightings.json");
+        try
+        {
+            _write?.Wait(1000);
+            if (!File.Exists(file)) return;
+            var all = JsonConvert.DeserializeObject<Dictionary<string, List<SightingDto>>>(File.ReadAllText(file));
+            if (all == null || !all.TryGetValue(areaRaw, out var rows)) return;
+            foreach (var s in rows)
+                if (s.AreaHash == hash && _area.TryAdd((s.Path, s.X, s.Y), s)) _list.Add(s);
+        }
+        catch (Exception ex) { Why = $"sightings.json: {ex.Message}"; }
     }
 
     /// <summary>
