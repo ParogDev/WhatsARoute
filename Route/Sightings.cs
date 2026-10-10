@@ -43,6 +43,7 @@ public sealed class Sightings
     private const int KeepPerArea = 400;
     private readonly Dictionary<(string path, int x, int y), SightingDto> _area = new();
     private readonly List<SightingDto> _list = new();
+    private readonly Dictionary<long, double> _refreshed = new();   // entity address -> next state refresh
     private string _areaRaw = "";
     private uint _hash;
     private bool _dirty;
@@ -56,7 +57,7 @@ public sealed class Sightings
     {
         _write?.Wait(1000);   // a write still running would make Flush skip the old area's last rows
         Flush(pluginDir);
-        _area.Clear(); _list.Clear();
+        _area.Clear(); _list.Clear(); _refreshed.Clear();
         _areaRaw = areaRaw; _hash = hash;
         // Same instance as before a plugin reload or HUD restart: what was seen is still there (and the next write
         // replaces this instance's rows, so starting empty would also drop them from the file).
@@ -93,7 +94,12 @@ public sealed class Sightings
     /// <summary>Records <paramref name="e"/> (or refreshes its state). True when it is new here.</summary>
     public bool Note(Entity e, Func<(int x, int y), IngameData.Tile?> tileAt, double now)
     {
-        if (!e.IsValid || e.Path is not { Length: > 0 } path) return false;
+        if (!e.IsValid) return false;
+        // Seen and refreshed under a second ago: its state is fresh enough (a step's DoneWhenSeen and ExcludeNear
+        // read it at 2 Hz) and the component reads below are the scan's whole cost.
+        if (_refreshed.TryGetValue(e.Address, out var next) && now < next) return false;
+        _refreshed[e.Address] = now + 1;
+        if (e.Path is not { Length: > 0 } path) return false;
         if (path.StartsWith("Metadata/Monsters", StringComparison.Ordinal) || path.StartsWith("Metadata/Effects", StringComparison.Ordinal)) return false;
         var gp = e.GridPos;
         var cell = ((int)gp.X, (int)gp.Y);
