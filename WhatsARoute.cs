@@ -60,6 +60,11 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private int _stepIndex = -1;
     private int _stepShift;                     // hotkey nudges in this area
     private readonly HashSet<int> _reachedSteps = new();
+    private readonly Dictionary<string, int> _quests = new();   // open quest id -> state id
+    private double _nextQuests, _nextMap;
+    private QuestObjective? _questObj;
+    private readonly WorldMapReader _map = new();
+    private WorldMapReader.Stop? _chosenStop;
     private readonly Dictionary<string, bool> _flags = new();
     private double _nextFlags;
     private string? _why;
@@ -126,6 +131,9 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private void TickBody()
     {
         if (!GameController.InGame || GameController.Player == null) { _frame.Ready = false; return; }
+        var t = _clock.Elapsed.TotalSeconds;
+        if (t >= _nextQuests) { _nextQuests = t + 1; ReadQuests(); }
+        if (t >= _nextMap) { _nextMap = t + 0.25; ReadTravelMap(); }
         var grid = _grid;
         if (grid == null) { _why = _areaWhy ?? "building the area grid"; _frame.Ready = false; return; }
         var r = GameController.Player.GetComponent<Render>();
@@ -205,6 +213,36 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         }
     }
 
+    private void ReadQuests()
+    {
+        _quests.Clear();
+        try
+        {
+            foreach (var (quest, state) in GameController.IngameState.IngameUi.UncompletedQuests)
+                if (quest?.Id is { } id && state != null) _quests[id] = state.QuestStateId;
+        }
+        catch (Exception ex) { _why = $"IngameUi.UncompletedQuests: {ex.Message}"; }
+        _questObj = null;
+        foreach (var q in _book.Route.Quests)
+        {
+            if (q.Optional && !Settings.Route.IncludeOptional) continue;
+            if (!_quests.TryGetValue(q.Quest, out var st)) continue;
+            if (q.States is { Length: > 0 } && Array.IndexOf(q.States, st) < 0) continue;
+            _questObj = q;
+            break;
+        }
+    }
+
+    private void ReadTravelMap()
+    {
+        try { _map.Read(GameController, _areaRaw); }
+        catch (Exception ex) { _map.Why = $"travel map: {ex.Message}"; }
+        _chosenStop = null;
+        if (!_map.Open || _resolved.TravelTo is not { } dest) return;
+        foreach (var s in _map.Stops)
+            if (s.Unlocked && string.Equals(s.DestId, dest, StringComparison.OrdinalIgnoreCase)) { _chosenStop = s; break; }
+    }
+
     private bool StepDone(int i, RouteStep s) =>
         _reachedSteps.Contains(i) || (s.DoneFlag != null && _flags.TryGetValue(s.DoneFlag, out var v) && v);
 
@@ -212,7 +250,18 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     {
         string spec;
         var steps = _book.StepsFor(_areaRaw);
-        if (Settings.Route.Mode.Value == "Route" && steps.Count > 0)
+        var q = Settings.Route.Mode.Value == "Route" ? _questObj : null;
+        if (q != null && !RouteBook.Like(_areaRaw, q.Area))
+        {
+            _stepIndex = -1;
+            spec = "travel:" + q.Area;
+        }
+        else if (q?.Target is { Length: > 0 } qt && steps.Count == 0)
+        {
+            _stepIndex = -1;
+            spec = qt;
+        }
+        else if (Settings.Route.Mode.Value == "Route" && steps.Count > 0)
         {
             var first = -1;
             for (var i = 0; i < steps.Count; i++)
@@ -229,6 +278,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         _targetSpec = spec;
         _resolver.Resolve(GameController, _book, spec, _areaRaw, _resolved);
         if (_stepIndex >= 0 && steps[_stepIndex].Label is { Length: > 0 } label) _resolved.Label = label;
+        else if (q?.Label is { Length: > 0 } ql && spec == q.Target) _resolved.Label = ql;
         if (_resolved.Goals.Count == 0)
         {
             _why = _resolved.Why;
@@ -264,6 +314,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         if (Settings.Route.NextStep.PressedOnce()) { _stepShift++; _nextResolve = 0; }
         if (Settings.Route.PreviousStep.PressedOnce()) { _stepShift--; _nextResolve = 0; }
         if (!GameController.InGame) return;
+        if (_map.Open && _chosenStop is { } stop) DrawChosenStop(stop);
         var ui = GameController.IngameState.IngameUi;
         if (ui.FullscreenPanels.Any(x => x.IsVisible) || ui.LargePanels.Any(x => x.IsVisible)) return;
         if (Settings.Debug.ShowStatus) DrawStatus();
@@ -273,6 +324,22 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         var open = largeMap.IsVisible;
         _renderer.Draw(_frame, _edges, Settings, snap.Matrix, snap.HalfSize, open,
             open ? largeMap.MapCenter : default, open ? largeMap.MapScale : 0, _clock.Elapsed.TotalSeconds);
+    }
+
+    /// <summary>Placeholder look (design pass pending): rings around the stop to pick on the open travel map.</summary>
+    private void DrawChosenStop(WorldMapReader.Stop stop)
+    {
+        var dl = ImGui.GetForegroundDrawList();
+        var t = (float)_clock.Elapsed.TotalSeconds;
+        var r = stop.Size * 0.5f + 4f + 3f * MathF.Sin(t * 3f);
+        var gold = Glow.Col(new Vector3(1f, 0.85f, 0.45f), 0.95f);
+        dl.AddCircle(stop.Center, r + 4f, Glow.Col(Glow.Ink, 0.5f), 48, 5f);
+        dl.AddCircle(stop.Center, r, gold, 48, 2.5f);
+        var label = _resolved.Label;
+        var size = ImGui.CalcTextSize(label) + new Vector2(12f, 6f);
+        var pos = new Vector2(stop.Center.X - size.X * 0.5f, stop.Center.Y + stop.Size * 0.5f + 10f);
+        dl.AddRectFilled(pos, pos + size, Glow.Col(new Vector3(0.04f, 0.06f, 0.07f), 0.85f), size.Y * 0.5f);
+        dl.AddText(pos + new Vector2(6f, 3f), gold, label);
     }
 
     private void DrawStatus()
@@ -330,6 +397,13 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             },
         };
         foreach (var p in _frame.MapPath) { dto.MapPath.Add((int)p.X); dto.MapPath.Add((int)p.Y); }
+        dto.ActiveQuests = _quests.Select(kv => $"{kv.Key}:{kv.Value}").ToList();
+        dto.QuestObjective = _questObj == null ? null : $"{_questObj.Quest} -> {_questObj.Area} ({_questObj.Label})";
+        dto.TravelTo = _resolved.TravelTo;
+        dto.TravelMapOpen = _map.Open;
+        if (_map.Why != null) dto.Notes.Add(_map.Why);
+        foreach (var s in _map.Stops)
+            dto.TravelMapStops.Add(new TravelStopDto { Index = s.Index, DestId = s.DestId, DestName = s.DestName, Unlocked = s.Unlocked, Chosen = s == _chosenStop, X = (int)s.Center.X, Y = (int)s.Center.Y });
         if (_book.RouteError != null) dto.Notes.Add(_book.RouteError);
         if (_book.RadarError != null) dto.Notes.Add(_book.RadarError);
         return JsonConvert.SerializeObject(dto);

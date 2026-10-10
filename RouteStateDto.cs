@@ -25,6 +25,23 @@ public sealed class RouteStateDto
     /// <summary>The whole route in grid cells, every few cells (x0, y0, x1, y1, ...).</summary>
     public List<int> MapPath { get; set; } = new();
     public List<string> Notes { get; set; } = new();
+    /// <summary>Open quests as "QuestId:StateId" (IngameUi.UncompletedQuests).</summary>
+    public List<string> ActiveQuests { get; set; } = new();
+    public string? QuestObjective { get; set; }
+    public string? TravelTo { get; set; }
+    public bool TravelMapOpen { get; set; }
+    public List<TravelStopDto> TravelMapStops { get; set; } = new();
+}
+
+public sealed class TravelStopDto
+{
+    public int Index { get; set; }
+    public string DestId { get; set; } = "";
+    public string DestName { get; set; } = "";
+    public bool Unlocked { get; set; }
+    public bool Chosen { get; set; }
+    public int X { get; set; }
+    public int Y { get; set; }
 }
 
 public sealed class RouteStepDto

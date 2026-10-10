@@ -1,6 +1,10 @@
 {
   "Name": "Act 2 (draft)",
   "Source": "Order from the Maxroll PoE2 campaign guide (updated 2026-06-02). Places are Radar targets.json names. Unverified live: check each area as you play.",
+  "Quests": [
+    { "Quest": "PryTheFlameRuby", "States": [6], "Area": "G2_6", "Target": "radar:The Titan Grotto", "Label": "Titan Grotto (Clasped Entry)", "Note": "Verified live 2026-10-10: state 6 = 'Enter the Titan Grotto at the Clasped Entry'" },
+    { "Quest": "BurnTheWaterGoddess", "States": [10], "Area": "G2_4_1", "Target": "radar:The Lost City", "Label": "Search for access to Keth", "Note": "Verified live 2026-10-10: state 10 = 'Search for access to Keth'" }
+  ],
   "Areas": {
     "G2_10_1": [
       { "Target": "radar:Artificers Orb", "Label": "Faridun War Cache (Artificer's Orb)", "Optional": true },

@@ -34,6 +34,8 @@ public sealed class TargetResolver
         public string Label = "";
         public string? Why;   // the broken link, when there are no goals
         public bool FromEntities;
+        public string? TravelTo;      // area id when the objective is in another area
+        public bool ViaTravelMap;     // the way there is the Desert Map: highlight its stop when the map opens
     }
 
     public void Resolve(GameController gc, RouteBook book, string spec, string areaRawName, Result r)
@@ -41,6 +43,8 @@ public sealed class TargetResolver
         r.Goals.Clear();
         r.Why = null;
         r.FromEntities = false;
+        r.TravelTo = null;
+        r.ViaTravelMap = false;
         spec = spec.Trim();
         var colon = spec.IndexOf(':');
         var kind = (colon < 0 ? spec : spec[..colon]).Trim().ToLowerInvariant();
@@ -69,6 +73,22 @@ public sealed class TargetResolver
                     if (r.Goals.Count > 0) r.Label = arg.Length > 0 ? $"Desert Map: travel to {arg}" : "Desert Map: choose where to go";
                 }
                 break;
+            case "travel":
+            {
+                // Another area: an open exit that leads there, else the caravan's Desert Map, else a waypoint/checkpoint.
+                var name = gc.Files.WorldAreas.EntriesList.FirstOrDefault(a => string.Equals(a.Id, arg, StringComparison.OrdinalIgnoreCase))?.Name ?? arg;
+                r.TravelTo = arg;
+                r.Label = $"Exit to {name}";
+                Entities(gc, r, e => e.Type == EntityType.AreaTransition && IsTargetable(e) &&
+                                     string.Equals(e.GetComponent<AreaTransition>()?.WorldArea?.Id, arg, StringComparison.OrdinalIgnoreCase));
+                if (r.Goals.Count > 0) break;
+                Entities(gc, r, e => IsTargetable(e) && e.Path?.EndsWith("/Objects/MapTable", StringComparison.Ordinal) == true);
+                if (r.Goals.Count > 0) { r.Label = $"Desert Map: travel to {name}"; r.ViaTravelMap = true; break; }
+                Entities(gc, r, e => e.Type == EntityType.Waypoint || e.Path?.Contains("Checkpoint", StringComparison.OrdinalIgnoreCase) == true);
+                if (r.Goals.Count > 0) r.Label = $"Waypoint: travel to {name}";
+                else r.Why = $"no exit to {arg}, no Desert Map and no waypoint/checkpoint loaded near you";
+                break;
+            }
             case "entity":
                 r.Label = arg.Split('/').LastOrDefault() ?? arg;
                 Entities(gc, r, e => e.Path?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true);

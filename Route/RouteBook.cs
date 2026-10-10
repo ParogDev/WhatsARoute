@@ -19,10 +19,27 @@ public sealed class RouteStep
     public string? Note { get; set; }
 }
 
+/// <summary>
+/// Where an active quest state sends you. The first entry (file order = the speedrun order) whose quest is open in
+/// one of <see cref="States"/> (any state when null) is the objective: walk <see cref="Target"/> when you are in
+/// <see cref="Area"/>, otherwise travel there. Read from IngameUi.UncompletedQuests, so it is stateless.
+/// </summary>
+public sealed class QuestObjective
+{
+    public string Quest { get; set; } = "";
+    public int[]? States { get; set; }
+    public string Area { get; set; } = "";
+    public string? Target { get; set; }
+    public string? Label { get; set; }
+    public bool Optional { get; set; }
+    public string? Note { get; set; }
+}
+
 public sealed class RouteFile
 {
     public string? Name { get; set; }
     public string? Source { get; set; }
+    public List<QuestObjective> Quests { get; set; } = new();
     /// <summary>Area RawName (Radar-style pattern, * and ?) to its ordered steps.</summary>
     public Dictionary<string, List<RouteStep>> Areas { get; set; } = new();
 }
