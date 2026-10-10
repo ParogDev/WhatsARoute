@@ -81,7 +81,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private FlowField? _lastFieldUsed;
     private EdgeMap? _lastEdgesUsed;
     private int _lastEdgeAhead, _lastEdgeCorridor;
-    private double _replanUs, _tickUs, _renderUs;
+    private double _replanUs, _tickUs, _renderUs, _resolveUs;
     private float _pathLen;
 
     public override bool Initialise()
@@ -310,7 +310,9 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             spec = Settings.Route.ManualTarget.Value ?? "";
         }
         _targetSpec = spec;
+        var rt0 = Stopwatch.GetTimestamp();
         _resolver.Resolve(GameController, _book, spec, _areaRaw, _resolved);
+        _resolveUs = _resolveUs * 0.8 + 0.2 * Stopwatch.GetElapsedTime(rt0).TotalMicroseconds;
         if (_stepIndex >= 0 && steps[_stepIndex].Label is { Length: > 0 } label) _resolved.Label = label;
         else if (q?.Label is { Length: > 0 } ql && spec == q.Target) _resolved.Label = ql;
         if (_resolved.Goals.Count == 0)
@@ -470,6 +472,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 TickUs = Math.Round(_tickUs, 1),
                 RenderUs = Math.Round(_renderUs, 1),
                 LastReplanUs = Math.Round(_replanUs, 1),
+                ResolveUs = Math.Round(_resolveUs, 1),
+                Entities = GameController.EntityListWrapper.OnlyValidEntities.Count,
             },
         };
         foreach (var p in _frame.MapPath) { dto.MapPath.Add((int)p.X); dto.MapPath.Add((int)p.Y); }

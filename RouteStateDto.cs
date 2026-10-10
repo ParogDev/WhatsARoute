@@ -63,4 +63,8 @@ public sealed class RouteTimingsDto
     public double TickUs { get; set; }
     public double RenderUs { get; set; }
     public double LastReplanUs { get; set; }
+    /// <summary>Objective resolution (2 Hz), smoothed.</summary>
+    public double ResolveUs { get; set; }
+    /// <summary>Load condition the timings were taken under: valid entities right now.</summary>
+    public int Entities { get; set; }
 }

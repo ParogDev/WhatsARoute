@@ -26,6 +26,7 @@ public sealed class TargetResolver
 {
     private List<IngameData.Tile>? _tiles;
     private string _areaKey = "";
+    private readonly Dictionary<string, string> _areaNames = new(StringComparer.OrdinalIgnoreCase);   // WorldAreas id -> name (a ~600-row scan otherwise)
 
     public void ResetArea() { _tiles = null; _areaKey = ""; }
 
@@ -63,13 +64,13 @@ public sealed class TargetResolver
                 break;
             case "waypoint":
                 r.Label = "Waypoint";
-                Entities(gc, r, e => e.Type == EntityType.Waypoint);
+                Entities(gc, r, EntityType.Waypoint, _ => true);
                 break;
             case "transition":
                 r.Label = arg.Length > 0 ? arg : "Exit";
                 // Only exits you can use now: the Act 2 caravan keeps one exit per destination at its doors, all
                 // untargetable while it travels; locked doors are untargetable too. Matches the name or area id.
-                Entities(gc, r, e => e.Type == EntityType.AreaTransition && IsTargetable(e) &&
+                Entities(gc, r, EntityType.AreaTransition, e => IsTargetable(e) &&
                                      (arg.Length == 0 || e.RenderName?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true ||
                                       string.Equals(e.GetComponent<AreaTransition>()?.WorldArea?.Id, arg, StringComparison.OrdinalIgnoreCase)));
                 if (r.Goals.Count == 0)
@@ -82,10 +83,11 @@ public sealed class TargetResolver
             case "travel":
             {
                 // Another area: an open exit that leads there, else the caravan's Desert Map, else a waypoint/checkpoint.
-                var name = gc.Files.WorldAreas.EntriesList.FirstOrDefault(a => string.Equals(a.Id, arg, StringComparison.OrdinalIgnoreCase))?.Name ?? arg;
+                if (!_areaNames.TryGetValue(arg, out var name))
+                    _areaNames[arg] = name = gc.Files.WorldAreas.EntriesList.FirstOrDefault(a => string.Equals(a.Id, arg, StringComparison.OrdinalIgnoreCase))?.Name ?? arg;
                 r.TravelTo = arg;
                 r.Label = $"Exit to {name}";
-                Entities(gc, r, e => e.Type == EntityType.AreaTransition && IsTargetable(e) &&
+                Entities(gc, r, EntityType.AreaTransition, e => IsTargetable(e) &&
                                      string.Equals(e.GetComponent<AreaTransition>()?.WorldArea?.Id, arg, StringComparison.OrdinalIgnoreCase));
                 if (r.Goals.Count > 0) break;
                 Entities(gc, r, e => IsTargetable(e) && e.Path?.EndsWith("/Objects/MapTable", StringComparison.Ordinal) == true);
@@ -130,10 +132,18 @@ public sealed class TargetResolver
             r.Why = r.FromEntities ? $"no '{spec}' loaded near you yet (entities only exist once the game sends them)" : $"no tile matches '{spec}' in {areaRawName}";
     }
 
-    private static void Entities(GameController gc, Result r, Func<Entity, bool> match)
+    private static void Entities(GameController gc, Result r, Func<Entity, bool> match) => Entities(gc, r, null, match);
+
+    /// <summary>
+    /// With a type, only the HUD's per-type list is walked (measured in the caravan, 513 entities: 7.2 us / 1.7 KB vs
+    /// 16 us / 5.9 KB for all entities; the full scan grows with every monster and effect on a busy map, the list only
+    /// with what we want). Without one (metadata-path matches), every valid entity.
+    /// </summary>
+    private static void Entities(GameController gc, Result r, EntityType? type, Func<Entity, bool> match)
     {
         r.FromEntities = true;
-        foreach (var e in gc.Entities)
+        IEnumerable<Entity> source = type is { } t && gc.EntityListWrapper.ValidEntitiesByType.TryGetValue(t, out var list) ? list : gc.Entities;
+        foreach (var e in source)
         {
             if (!e.IsValid || !match(e)) continue;
             var rd = e.GetComponent<Render>();
