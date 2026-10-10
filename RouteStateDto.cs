@@ -71,4 +71,10 @@ public sealed class RouteTimingsDto
     public double ResolveUs { get; set; }
     /// <summary>Load condition the timings were taken under: valid entities right now.</summary>
     public int Entities { get; set; }
+    /// <summary>Load condition: the non-monster entities path matches walk (TargetResolver.Places).</summary>
+    public int Places { get; set; }
+    /// <summary>Gathering places and recording sightings (2 Hz, before resolving), smoothed.</summary>
+    public double SightingsScanUs { get; set; }
+    /// <summary>Load condition: goal cells the objective resolved to (a Radar tile place can be hundreds).</summary>
+    public int Goals { get; set; }
 }

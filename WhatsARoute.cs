@@ -84,7 +84,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private FlowField? _lastFieldUsed;
     private EdgeMap? _lastEdgesUsed;
     private int _lastEdgeAhead, _lastEdgeCorridor;
-    private double _replanUs, _tickUs, _renderUs, _resolveUs;
+    private double _replanUs, _tickUs, _renderUs, _resolveUs, _scanUs;
     private float _pathLen;
 
     /// <summary>
@@ -185,9 +185,13 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         {
             _nextResolve = now + 0.5;
             _resolver.Now = now;
+            var st = Stopwatch.GetTimestamp();
+            _resolver.RefreshPlaces(GameController);
+            _seenCache.Clear();
             // Places near you right now (transitions, waypoints, checkpoints, quest icons): remembered for the visit
             // and written to sightings.json, so a goal that unloads keeps its place and a new layout can be mapped.
             _resolver.Sightings.Scan(GameController, _areaRaw, GameController.Area.CurrentArea?.Hash ?? 0, DataDir, c => _resolver.TileAt(GameController, _areaRaw, c), now);
+            _scanUs = _scanUs * 0.8 + 0.2 * Stopwatch.GetElapsedTime(st).TotalMicroseconds;
             ResolveObjective(grid, cell);
             _resolver.Sightings.FlushIfIdle(DataDir, now);
         }
@@ -344,7 +348,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         if (s.ExcludeNear is { Entity.Length: > 0 } ex)
         {
             exclude = new List<Vector2>();
-            foreach (var e in GameController.Entities)
+            foreach (var e in _resolver.Places)
             {
                 if (!e.IsValid || e.Path?.Contains(ex.Entity, StringComparison.OrdinalIgnoreCase) != true) continue;
                 if (ex.State != null && !HasState(e, ex.State)) continue;
@@ -406,8 +410,10 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     /// </summary>
     private bool SeenEnough(DoneWhenSeenRule dw)
     {
+        // Several steps share one rule (all three G2_6 seal steps): answered once per resolve.
+        if (_seenCache.TryGetValue(dw, out var known)) return known;
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var e in GameController.Entities)
+        foreach (var e in _resolver.Places)
         {
             if (!e.IsValid || e.Path?.Contains(dw.Entity, StringComparison.OrdinalIgnoreCase) != true) continue;
             _resolver.Sightings.Note(e, c => _resolver.TileAt(GameController, _areaRaw, c), _resolver.Now);
@@ -416,8 +422,10 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         foreach (var sg in _resolver.Sightings.Area)
             if (sg.Path.Contains(dw.Entity, StringComparison.OrdinalIgnoreCase) && (dw.State == null || Sightings.HasState(sg.State, dw.State)))
                 paths.Add(sg.Path);
-        return paths.Count >= dw.Count;
+        return _seenCache[dw] = paths.Count >= dw.Count;
     }
+
+    private readonly Dictionary<DoneWhenSeenRule, bool> _seenCache = new();
 
     private void ResolveObjective(AreaGrid grid, (int x, int y) cell)
     {
@@ -703,6 +711,9 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 LastReplanUs = Math.Round(_replanUs, 1),
                 ResolveUs = Math.Round(_resolveUs, 1),
                 Entities = GameController.EntityListWrapper.OnlyValidEntities.Count,
+                Places = _resolver.Places.Count,
+                SightingsScanUs = Math.Round(_scanUs, 1),
+                Goals = _resolved.Goals.Count,
             },
         };
         foreach (var p in _frame.MapPath) { dto.MapPath.Add((int)p.X); dto.MapPath.Add((int)p.Y); }

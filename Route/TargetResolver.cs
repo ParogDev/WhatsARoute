@@ -19,6 +19,8 @@ namespace WhatsARoute.Route;
 /// <item><c>tile:*Thickwall_Cave_Entrance*</c>: terrain tiles by name or .tdt path (known for the whole map on entry)</item>
 /// <item><c>radar:The Halani Gates</c>: a named place from Radar's targets.json for this area</item>
 /// <item><c>entity:Metadata/QuestObjects/...</c>: entities whose metadata path contains this</item>
+/// <item><c>click:...</c>: the same, only while you can click it (targetable)</item>
+/// <item><c>item:EssenceOfTheWaterGod</c>: an item on the ground, by the item's metadata path or base name</item>
 /// </list>
 /// Several matches become several goals: the flow field then leads to the nearest reachable one.
 /// </summary>
@@ -152,14 +154,22 @@ public sealed class TargetResolver
             }
             case "entity":
                 r.Label = arg.Split('/').LastOrDefault() ?? arg;
-                Entities(gc, r, e => e.Path?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true);
+                Entities(gc, r, e => e.Path?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true, MayBeMonster(arg));
                 if (r.Goals.Count == 0) Remembered(r, s => s.Path.Contains(arg, StringComparison.OrdinalIgnoreCase));
                 break;
             case "click":
                 // An entity you can click right now (quest objects turn targetable one after another).
                 r.Label = arg.Split('/').LastOrDefault() ?? arg;
-                Entities(gc, r, e => IsTargetable(e) && e.Path?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true);
+                Entities(gc, r, e => IsTargetable(e) && e.Path?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true, MayBeMonster(arg));
                 if (r.Goals.Count == 0) Remembered(r, s => s.Targetable && s.Path.Contains(arg, StringComparison.OrdinalIgnoreCase));
+                break;
+            case "item":
+                // An item on the ground (a quest item dropped by an event): the WorldItem entity's path is generic, so
+                // match the item inside it, by metadata or base name.
+                r.Label = arg;
+                Entities(gc, r, EntityType.WorldItem, e => e.GetComponent<WorldItem>()?.ItemEntity is { } it &&
+                    (it.Path?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true ||
+                     it.GetComponent<Base>()?.Name?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true));
                 break;
             case "tile":
                 r.Label = arg;
@@ -178,7 +188,7 @@ public sealed class TargetResolver
                     foreach (var alt in (t.Alternatives ?? []).Prepend(t))
                     {
                         if (string.Equals(t.TargetType, "Entity", StringComparison.OrdinalIgnoreCase))
-                            Entities(gc, r, e => RouteBook.Like(e.Path, alt.Name));
+                            Entities(gc, r, e => RouteBook.Like(e.Path, alt.Name), MayBeMonster(alt.Name));
                         else
                             Tiles(gc, areaRawName, alt.Name, r);
                         if (r.Goals.Count > before) break;
@@ -223,7 +233,28 @@ public sealed class TargetResolver
     private static (int x, int y) CellOf(Entity e) =>
         e.GetComponent<Positioned>() is { } p ? ((int)p.GridPos.X, (int)p.GridPos.Y) : (-1, -1);
 
-    private void Entities(GameController gc, Result r, Func<Entity, bool> match) => Entities(gc, r, null, match);
+    private void Entities(GameController gc, Result r, Func<Entity, bool> match, bool monsters = false) => Entities(gc, r, null, match, monsters);
+
+    private static readonly HashSet<EntityType> NotPlaces = [EntityType.Monster, EntityType.Effect, EntityType.Player, EntityType.WorldItem];
+    private readonly List<Entity> _places = new(256);
+
+    /// <summary>
+    /// Every valid entity except monsters, effects, players and ground items, gathered from the HUD's per-type lists
+    /// once per resolve (<see cref="RefreshPlaces"/>). Path matches (entity:, click:, ExcludeNear, DoneWhenSeen) walk
+    /// this instead of all entities: the full list grows with every monster on a busy map, this one doesn't.
+    /// </summary>
+    public IReadOnlyList<Entity> Places => _places;
+
+    public void RefreshPlaces(GameController gc)
+    {
+        _places.Clear();
+        foreach (var (type, list) in gc.EntityListWrapper.ValidEntitiesByType)
+            if (!NotPlaces.Contains(type))
+                _places.AddRange(list);
+    }
+
+    /// <summary>A path pattern that names a monster (a boss) must search every entity, not just <see cref="Places"/>.</summary>
+    private static bool MayBeMonster(string pattern) => pattern.Contains("Monster", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Goals from this visit's sightings (the entity unloaded when you walked away). Their place is still right.</summary>
     private void Remembered(Result r, Func<SightingDto, bool> match)
@@ -245,11 +276,12 @@ public sealed class TargetResolver
     /// 16 us / 5.9 KB for all entities; the full scan grows with every monster and effect on a busy map, the list only
     /// with what we want). Without one (metadata-path matches), every valid entity.
     /// </summary>
-    private void Entities(GameController gc, Result r, EntityType? type, Func<Entity, bool> match)
+    private void Entities(GameController gc, Result r, EntityType? type, Func<Entity, bool> match, bool monsters = false)
     {
         r.FromEntities = true;
         var area = _currentArea;
-        IEnumerable<Entity> source = type is { } t && gc.EntityListWrapper.ValidEntitiesByType.TryGetValue(t, out var list) ? list : gc.Entities;
+        IEnumerable<Entity> source = type is { } t && gc.EntityListWrapper.ValidEntitiesByType.TryGetValue(t, out var list) ? list
+            : monsters || _places.Count == 0 ? gc.Entities : _places;
         foreach (var e in source)
         {
             if (!e.IsValid || !match(e)) continue;
