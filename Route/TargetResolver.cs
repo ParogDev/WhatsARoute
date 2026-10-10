@@ -156,6 +156,7 @@ public sealed class TargetResolver
                 {
                     r.ViaPortal = true;
                     r.Label = $"Travel to {name}";
+                    r.FromEntities = false;   // not "nothing loaded yet": the last route (to a waypoint) must not be kept
                     return;
                 }
                 Entities(gc, r, e => e.Type == EntityType.Waypoint || e.Path?.Contains("Checkpoint", StringComparison.OrdinalIgnoreCase) == true);
