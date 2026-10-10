@@ -93,6 +93,20 @@ public sealed class FlowField
     public float CostAt(int x, int y) => Grid.InBounds(x, y) ? Cost[y * Grid.W + x] : float.PositiveInfinity;
 
     /// <summary>
+    /// <paramref name="start"/>, or the nearest cell the field reached within 12 cells (the player can stand on a
+    /// blocked cell for a moment); null when the start is on another island than every goal.
+    /// </summary>
+    public (int x, int y)? Snap((int x, int y) start)
+    {
+        if (!float.IsPositiveInfinity(CostAt(start.x, start.y))) return start;
+        for (var r = 1; r <= 12; r++)
+        for (var dy = -r; dy <= r; dy++)
+        for (var dx = -r; dx <= r; dx++)
+            if (!float.IsPositiveInfinity(CostAt(start.x + dx, start.y + dy))) return (start.x + dx, start.y + dy);
+        return null;
+    }
+
+    /// <summary>
     /// Cells from <paramref name="start"/> down the cost gradient to a goal, into <paramref name="cells"/> (cleared
     /// first, reused). A start off the field (blocked cell, other island) snaps to the nearest reached cell. Returns
     /// false with the reason when there is no way down.
@@ -102,16 +116,7 @@ public sealed class FlowField
         cells.Clear();
         why = null;
         var g = Grid;
-        var cur = start;
-        if (float.IsPositiveInfinity(CostAt(cur.x, cur.y)))
-        {
-            var snapped = false;
-            for (var r = 1; r <= 12 && !snapped; r++)
-            for (var dy = -r; dy <= r && !snapped; dy++)
-            for (var dx = -r; dx <= r && !snapped; dx++)
-                if (!float.IsPositiveInfinity(CostAt(cur.x + dx, cur.y + dy))) { cur = (cur.x + dx, cur.y + dy); snapped = true; }
-            if (!snapped) { why = $"player cell ({start.x},{start.y}) cannot reach the goal (other island, or blocked ground)"; return false; }
-        }
+        if (Snap(start) is not { } cur) { why = $"player cell ({start.x},{start.y}) cannot reach the goal (other island, or blocked ground)"; return false; }
         cells.Add(cur);
         while (cells.Count < maxCells)
         {

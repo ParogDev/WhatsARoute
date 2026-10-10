@@ -2,8 +2,9 @@
   "Name": "Act 2 (draft)",
   "Source": "Order from the Maxroll PoE2 campaign guide (updated 2026-06-02). Places are Radar targets.json names. Unverified live: check each area as you play.",
   "Quests": [
-    { "Quest": "PryTheFlameRuby", "States": [6], "Area": "G2_6", "Target": "radar:Ancient Seal", "Label": "Light the Ancient Seals (3), then the Clasped Entry", "Note": "Verified live 2026-10-10: state 6 = 'Enter the Titan Grotto at the Clasped Entry' (the G2_6 steps handle the seals and the entry)" },
-    { "Quest": "BurnTheWaterGoddess", "States": [10], "Area": "G2_4_1", "Target": "radar:The Lost City", "Label": "Search for access to Keth", "Note": "Verified live 2026-10-10: state 10 = 'Search for access to Keth'" }
+    { "Quest": "PryTheFlameRuby", "States": [6], "Area": "G2_6", "Label": "Light the Ancient Seals (3), then the Clasped Entry", "Note": "Verified live 2026-10-10: state 6 = 'Enter the Titan Grotto at the Clasped Entry' (the G2_6 steps handle the seals and the entry)" },
+    { "Quest": "BurnTheWaterGoddess", "States": [6], "Area": "G2_4_3", "Target": "entity:NPC/Four_Act2/WaterGoddessUnnamed|radar:The Heart of Keth", "Label": "Speak with the Water Goddess", "Note": "Verified live 2026-10-10: state 6 = 'There is a Water Goddess lying in a shrine at the heart of Keth'; after the Heart of Keth boss, WaterGoddessUnnamed stands south of the arena (~(2737,818)) past the BossDoor; the Heart of Keth (boss transition) is the fallback until she is loaded" },
+    { "Quest": "BurnTheWaterGoddess", "States": [10], "Area": "G2_4_1", "Label": "Search for access to Keth", "Note": "Verified live 2026-10-10: state 10 = 'Search for access to Keth'" }
   ],
   "Areas": {
     "G2_10_1": [
