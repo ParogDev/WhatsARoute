@@ -143,9 +143,6 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         var dumpBase = _dumpBase;
         Task.Run(() =>
         {
-            if (dumpBase != null)
-                try { TerrainDump.Write(dumpBase + ".bin.gz", pf!, height); }
-                catch (Exception ex) { _areaWhy = $"saving terrain: {ex.Message}"; }
             var sw = Stopwatch.StartNew();
             var g = AreaGrid.From(pf, height, out var why);
             _gridMs = sw.Elapsed.TotalMilliseconds;
@@ -156,6 +153,10 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             if (e == null || ct.IsCancellationRequested) return;
             _edgeStamp = new int[e.Pieces.Count];
             _edges = e;
+            // Last: the route is up before the (gzip, a few hundred ms) dump starts.
+            if (dumpBase != null)
+                try { TerrainDump.Write(dumpBase + ".bin.gz", pf!, height); }
+                catch (Exception ex) { _areaWhy = $"saving terrain: {ex.Message}"; }
         }, ct);
     }
 
@@ -257,7 +258,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
 
         // A step without a quest flag counts as done once you stand on its goal. SkipIfNone steps are stateless and
         // repeat (light the next seal, take its portal back): they are never marked reached.
-        if (_stepIndex >= 0 && _cells.Count <= 4)
+        if (_stepIndex >= 0 && _cells.Count <= 4 && _blockedField == null)   // not at the way out of a cut-off part
         {
             var steps = _book.StepsFor(_areaRaw);
             if (_stepIndex >= steps.Count || !steps[_stepIndex].SkipIfNone) _reachedSteps.Add(_stepIndex);
