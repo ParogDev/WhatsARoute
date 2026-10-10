@@ -28,10 +28,10 @@ public sealed class TargetResolver
     private string _areaKey = "";
     private readonly Dictionary<string, string> _areaNames = new(StringComparer.OrdinalIgnoreCase);   // WorldAreas id -> name (a ~600-row scan otherwise)
 
-    public void ResetArea() { _tiles = null; _areaKey = ""; }
+    public void ResetArea() { _tiles = null; _areaKey = ""; _tileMatches.Clear(); }
 
     /// <summary>A goal that is an entity: where it stands and how big it is, for the in-world marker.</summary>
-    public readonly record struct GoalEntity(int X, int Y, Entity Entity, Render Render, Vector3 Pos, Vector3 Bounds);
+    public readonly record struct GoalEntity(int X, int Y, Entity Entity, Render? Render, Vector3 Pos, Vector3 Bounds);
 
     public sealed class Result
     {
@@ -44,7 +44,24 @@ public sealed class TargetResolver
         public bool ViaTravelMap;     // the way there is the Desert Map: highlight its stop when the map opens
     }
 
+    /// <summary>
+    /// <paramref name="spec"/> may list fallbacks, "a|b|c": the first that finds goals wins, so one stale data source
+    /// (e.g. a Radar tile that no longer exists in this layout) doesn't break the step. With none, every reason is kept.
+    /// </summary>
     public void Resolve(GameController gc, RouteBook book, string spec, string areaRawName, Result r)
+    {
+        if (!spec.Contains('|')) { ResolveOne(gc, book, spec, areaRawName, r); return; }
+        var whys = new List<string>();
+        foreach (var part in spec.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            ResolveOne(gc, book, part, areaRawName, r);
+            if (r.Goals.Count > 0) return;
+            if (r.Why != null) whys.Add(r.Why);
+        }
+        r.Why = string.Join("; ", whys);
+    }
+
+    private void ResolveOne(GameController gc, RouteBook book, string spec, string areaRawName, Result r)
     {
         r.Goals.Clear();
         r.GoalEntities.Clear();
@@ -147,11 +164,23 @@ public sealed class TargetResolver
         {
             if (!e.IsValid || !match(e)) continue;
             var rd = e.GetComponent<Render>();
-            if (rd == null) continue;
-            var pos = rd.Pos;
-            var cell = ((int)(pos.X / AreaGrid.GridToWorld), (int)(pos.Y / AreaGrid.GridToWorld));
+            (int, int) cell;
+            if (rd != null)
+            {
+                var pos = rd.Pos;
+                cell = ((int)(pos.X / AreaGrid.GridToWorld), (int)(pos.Y / AreaGrid.GridToWorld));
+                r.GoalEntities.Add(new GoalEntity(cell.Item1, cell.Item2, e, rd, pos, rd.Bounds));
+            }
+            else if (e.GetComponent<Positioned>() is { } p)
+            {
+                // Markers without a model (e.g. G2_6 TitanGrottoPointOfInterest: Positioned + ProximityTrigger only):
+                // a goal for the path, no box for the in-world marker.
+                var gp = p.GridPos;
+                cell = ((int)gp.X, (int)gp.Y);
+                r.GoalEntities.Add(new GoalEntity(cell.Item1, cell.Item2, e, null, new Vector3(gp.X * AreaGrid.GridToWorld, gp.Y * AreaGrid.GridToWorld, 0), Vector3.Zero));
+            }
+            else continue;
             r.Goals.Add(cell);
-            r.GoalEntities.Add(new GoalEntity(cell.Item1, cell.Item2, e, rd, pos, rd.Bounds));
         }
     }
 
@@ -163,11 +192,22 @@ public sealed class TargetResolver
         {
             _tiles = gc.IngameState.Data.Tiles;
             _areaKey = areaRawName;
+            _tileMatches.Clear();
         }
         if (_tiles == null) { r.Why = "IngameData.Tiles is null"; return; }
         if (!pattern.Contains('*') && !pattern.Contains('?')) pattern = "*" + pattern + "*";
-        foreach (var t in _tiles)
-            if (RouteBook.Like(t.Name, pattern) || RouteBook.Like(t.Path, pattern))
-                r.Goals.Add((t.Coordinate.X, t.Coordinate.Y));
+        // Tiles don't change within an area: match each pattern once (a G2_6 scan of 10,989 tiles x 2 regexes was
+        // ~1.9 ms, twice a second, mostly for a Radar fallback that matched nothing).
+        if (!_tileMatches.TryGetValue(pattern, out var cells))
+        {
+            cells = new List<(int, int)>();
+            foreach (var t in _tiles)
+                if (RouteBook.Like(t.Name, pattern) || RouteBook.Like(t.Path, pattern))
+                    cells.Add((t.Coordinate.X, t.Coordinate.Y));
+            _tileMatches[pattern] = cells;
+        }
+        r.Goals.AddRange(cells);
     }
+
+    private readonly Dictionary<string, List<(int x, int y)>> _tileMatches = new();
 }

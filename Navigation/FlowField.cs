@@ -32,9 +32,18 @@ public sealed class FlowField
         Grid = grid; Cost = cost; Reached = reached; BuildMs = ms; Goals = goals;
     }
 
-    /// <summary>Null when cancelled or when no goal is on (or near) walkable ground.</summary>
-    public static FlowField? Build(AreaGrid g, IReadOnlyList<(int x, int y)> goals, CancellationToken ct)
+    /// <summary>
+    /// How far a goal may sit from walkable ground. Interaction markers can stand inside blocked geometry: G2_6's
+    /// TitanGrottoPointOfInterest (a ProximityTrigger) is 27 cells from the nearest walkable cell.
+    /// </summary>
+    public const int GoalSnapCells = 64;
+
+    /// <summary>Null when cancelled, or (with <paramref name="why"/>) when no goal is on or near walkable ground.</summary>
+    public static FlowField? Build(AreaGrid g, IReadOnlyList<(int x, int y)> goals, CancellationToken ct) => Build(g, goals, ct, out _);
+
+    public static FlowField? Build(AreaGrid g, IReadOnlyList<(int x, int y)> goals, CancellationToken ct, out string? why)
     {
+        why = null;
         var sw = Stopwatch.StartNew();
         var cost = new float[g.W * g.H];
         Array.Fill(cost, float.PositiveInfinity);
@@ -42,14 +51,19 @@ public sealed class FlowField
         var placed = new List<(int, int)>();
         foreach (var (gx, gy) in goals)
         {
-            if (g.NearestWalkable(gx, gy) is not { } c) continue;
+            if (g.NearestWalkable(gx, gy, GoalSnapCells) is not { } c) continue;
             var i = c.y * g.W + c.x;
             if (cost[i] == 0) continue;
             cost[i] = 0;
             open.Enqueue(i, 0);
             placed.Add(c);
         }
-        if (placed.Count == 0) return null;
+        if (placed.Count == 0)
+        {
+            var (fx, fy) = goals.Count > 0 ? goals[0] : (0, 0);
+            why = $"{goals.Count} goal(s), none within {GoalSnapCells} cells of walkable ground (first at {fx},{fy})";
+            return null;
+        }
 
         var reached = 0;
         var pops = 0;

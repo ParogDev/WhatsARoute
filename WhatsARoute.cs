@@ -333,8 +333,9 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         var goals = _resolved.Goals.ToArray();
         Task.Run(() =>
         {
-            var f = FlowField.Build(grid, goals, ct);
-            if (f == null || ct.IsCancellationRequested) return;
+            var f = FlowField.Build(grid, goals, ct, out var fieldWhy);
+            if (ct.IsCancellationRequested) return;
+            if (f == null) { _why = $"cost map: {fieldWhy}"; return; }
             _field = f;
         }, ct);
     }
@@ -368,27 +369,39 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         var disp = ImGui.GetIO().DisplaySize;
         var largeMap = ui.Map.LargeMap.AsObject<SubMap>();
         var open = largeMap.IsVisible;
-        if (_frame.Ready)
-            _renderer.Draw(_frame, _edges, Settings, m, half, player, open, open ? largeMap.MapCenter : default, open ? largeMap.MapScale : 0, time);
 
-        // The thing to click, around its live position (a transition can move: read Pos every frame from the cached component).
-        if (_frame.HasGoalBox && Settings.World.ShowGoalMarker.Value && !(open && Settings.World.HideWithLargeMap.Value) && _goalRender is { } gr)
+        // The thing to click, at its live position (a transition can move: Pos is read every frame from the cached
+        // component). Render.Pos is the CENTRE of the model's box and Bounds.Z HALF its height (up is -Z): the
+        // player's Pos.Z + Bounds.Z equals the terrain height exactly; a caravan door's is ~23 units off its ground
+        // cell. The pad goes on the ground the path uses at that cell (AreaGrid Z), falling back to Pos.Z + Bounds.Z,
+        // and the pin rises by the full height (2 x Bounds.Z). Measured 2026-10-10 by the Valley exit: drawn at Pos
+        // the marker sat 110 px above the doorway floor.
+        var showMarker = _frame.HasGoalBox && Settings.World.ShowGoalMarker.Value && !(open && Settings.World.HideWithLargeMap.Value) && _goalRender != null;
+        if (showMarker)
         {
-            if (_goalEntity is not { IsValid: true }) { _frame.HasGoalBox = false; return; }
-            // Render.Pos is the CENTRE of the model's box and Bounds.Z HALF its height (up is -Z): the player's Pos.Z +
-            // Bounds.Z equals the terrain height exactly; a caravan door's is ~23 units off its ground cell. The
-            // footprint goes on the ground the path uses at that cell (AreaGrid Z), falling back to Pos.Z + Bounds.Z,
-            // and the brackets rise by the full height (2 x Bounds.Z). Measured 2026-10-10 by the Valley exit: the
-            // marker drawn at Pos sat 110 px above the doorway floor.
-            var live = gr.Pos;
-            var g = _grid;
-            var ground = g != null && g.InBounds((int)(live.X / AreaGrid.GridToWorld), (int)(live.Y / AreaGrid.GridToWorld))
-                ? g.HeightAt(live.X / AreaGrid.GridToWorld, live.Y / AreaGrid.GridToWorld)
-                : live.Z + _frame.GoalHalf.Z;
-            _frame.GoalPos = new Vector3(live.X, live.Y, ground);
+            if (_goalEntity is not { IsValid: true }) { _frame.HasGoalBox = false; showMarker = false; }
+            else
+            {
+                var live = _goalRender!.Pos;
+                var g = _grid;
+                var ground = g != null && g.InBounds((int)(live.X / AreaGrid.GridToWorld), (int)(live.Y / AreaGrid.GridToWorld))
+                    ? g.HeightAt(live.X / AreaGrid.GridToWorld, live.Y / AreaGrid.GridToWorld)
+                    : live.Z + _frame.GoalHalf.Z;
+                _frame.GoalPos = new Vector3(live.X, live.Y, ground);
+            }
+        }
+        // Approach emphasis: 0 beyond ~600 world units from the goal, 1 within 150 (the doorstep).
+        Vector3? goal = showMarker ? _frame.GoalPos : _frame.Goal;
+        var near = goal is { } gp ? 1f - Glow.Smooth((Vector2.Distance(new Vector2(player.X, player.Y), new Vector2(gp.X, gp.Y)) - 150f) / 450f) : 0f;
+
+        if (_frame.Ready)
+            _renderer.Draw(_frame, _edges, Settings, m, half, player, goal, near, open, open ? largeMap.MapCenter : default, open ? largeMap.MapScale : 0, time);
+        if (showMarker)
+        {
             var dl = ImGui.GetBackgroundDrawList();
             if ((dl.Flags & ImDrawListFlags.AntiAliasedLines) == 0) dl.Flags |= ImDrawListFlags.AntiAliasedLines;
-            _markers.DrawEntity(dl, m, half, disp, _frame.GoalPos, new Vector3(_frame.GoalHalf.X, _frame.GoalHalf.Y, _frame.GoalHalf.Z * 2f), _frame.Label, core, glow, time, _goalAppearedAt);
+            _markers.DrawEntity(dl, m, half, disp, _frame.GoalPos, MathF.Max(_frame.GoalHalf.X, _frame.GoalHalf.Y) * 0.8f, _frame.GoalHalf.Z * 2f,
+                _frame.Label, core, glow, time, _goalAppearedAt, near);
         }
     }
 
