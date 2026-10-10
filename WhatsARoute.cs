@@ -92,16 +92,16 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     /// under Plugins\Temp, so DirectoryFullName points at a snapshot: the source folder keeps the files the user edits
     /// (Reload Route then reads the live route.json) and the sightings the agent reads.
     /// </summary>
-    private string DataDir
+    private string DataDir => _dataDir ??= FindDataDir();   // Directory.Exists is ~11 us (more on the junction): once
+    private string? _dataDir;
+
+    private string FindDataDir()
     {
-        get
-        {
-            var dir = DirectoryFullName;
-            var i = dir.IndexOf(@"\Plugins\Temp\", StringComparison.OrdinalIgnoreCase);
-            if (i < 0) return dir;
-            var src = dir[..i] + @"\Plugins\Source\" + dir[(i + @"\Plugins\Temp\".Length)..];
-            return System.IO.Directory.Exists(src) ? src : dir;
-        }
+        var dir = DirectoryFullName;
+        var i = dir.IndexOf(@"\Plugins\Temp\", StringComparison.OrdinalIgnoreCase);
+        if (i < 0) return dir;
+        var src = dir[..i] + @"\Plugins\Source\" + dir[(i + @"\Plugins\Temp\".Length)..];
+        return System.IO.Directory.Exists(src) ? src : dir;
     }
 
     public override bool Initialise()
