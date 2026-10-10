@@ -133,4 +133,7 @@ public sealed class DebugSettings
 
     [Menu("Outline the UI the route avoids", "Red boxes around each game UI element the world drawing keeps off")]
     public ToggleNode ShowUiMask { get; set; } = new(false);
+
+    [Menu("Save terrain for benchmarks", "On entering an area, write its terrain (and every objective's goals) to terrain/ in the plugin's source folder, for the offline benchmark (tools/route-bench in the scaffolding). A few MB per area")]
+    public ToggleNode SaveTerrain { get; set; } = new(false);
 }

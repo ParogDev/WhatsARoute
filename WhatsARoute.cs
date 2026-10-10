@@ -138,8 +138,14 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         catch (Exception ex) { _areaWhy = $"reading terrain: {ex.Message}"; return; }
         var ct = _areaCts.Token;
         var minEdges = Settings.World.MinContourEdges.Value;
+        _dumpBase = Settings.Debug.SaveTerrain.Value && _areaRaw.Length > 0 && pf is { Length: > 0 }
+            ? System.IO.Path.Combine(DataDir, "terrain", $"{_areaRaw}_{area?.Hash ?? 0:x8}") : null;
+        var dumpBase = _dumpBase;
         Task.Run(() =>
         {
+            if (dumpBase != null)
+                try { TerrainDump.Write(dumpBase + ".bin.gz", pf!, height); }
+                catch (Exception ex) { _areaWhy = $"saving terrain: {ex.Message}"; }
             var sw = Stopwatch.StartNew();
             var g = AreaGrid.From(pf, height, out var why);
             _gridMs = sw.Elapsed.TotalMilliseconds;
@@ -518,13 +524,37 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         _fieldCts = new CancellationTokenSource();
         var ct = _fieldCts.Token;
         var goals = _resolved.Goals.ToArray();
+        var sample = _dumpBase == null ? null : new GoalSampleDto { Spec = spec, Label = _resolved.Label, Goals = goals.Select(g => new[] { g.x, g.y }).ToList(), Player = [cell.x, cell.y] };
+        var dumpBase = _dumpBase;
         Task.Run(() =>
         {
             var f = FlowField.Build(grid, goals, ct, out var fieldWhy);
             if (ct.IsCancellationRequested) return;
             if (f == null) { _why = $"cost map: {fieldWhy}"; return; }
             _field = f;
+            if (sample != null) { sample.FieldBuildMs = Math.Round(f.BuildMs, 1); SaveGoalSample(dumpBase! + ".goals.json", sample); }
         }, ct);
+    }
+
+    private string? _dumpBase;   // terrain\<area>_<hash> while "Save terrain for benchmarks" is on
+    private static readonly object GoalFileLock = new();
+
+    /// <summary>Appends one objective (spec, goals, player cell, live field time) to the area's goals file, for replay.</summary>
+    private void SaveGoalSample(string file, GoalSampleDto sample)
+    {
+        try
+        {
+            lock (GoalFileLock)
+            {
+                var list = System.IO.File.Exists(file)
+                    ? JsonConvert.DeserializeObject<List<GoalSampleDto>>(System.IO.File.ReadAllText(file)) ?? new()
+                    : new List<GoalSampleDto>();
+                if (list.Count >= 50) return;
+                list.Add(sample);
+                System.IO.File.WriteAllText(file, JsonConvert.SerializeObject(list, Formatting.Indented));
+            }
+        }
+        catch (Exception ex) { _why = $"saving goals: {ex.Message}"; }
     }
 
     public override void Render()

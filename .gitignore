@@ -4,3 +4,4 @@ obj/
 .claude/override-path
 .claude/settings.local.json
 sightings.json
+terrain/
