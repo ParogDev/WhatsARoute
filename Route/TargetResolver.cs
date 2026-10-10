@@ -179,6 +179,7 @@ public sealed class TargetResolver
                     }
                 }
                 if (!found) { r.Why = book.RadarError ?? $"Radar targets.json has no '{arg}' for area {areaRawName}"; return; }
+                if (!r.FromEntities && r.Goals.Count > 0) ExitOnPlace(gc, r, arg, areaRawName);
                 break;
             }
             default:
@@ -188,6 +189,33 @@ public sealed class TargetResolver
         if (r.Goals.Count == 0 && r.Why == null)
             r.Why = r.FromEntities ? $"no '{spec}' loaded near you yet (entities only exist once the game sends them)" : $"no tile matches '{spec}' in {areaRawName}";
     }
+
+    /// <summary>
+    /// A Radar place made of tiles can be big (G2_4_1 "The Lost City" is Keth_Stairs_RuinEntrance, 81 tiles): its
+    /// goals are tile corners, and the route ended at the nearest one, by the checkpoint. When an exit is part of the
+    /// place (named like it, or standing on one of its tiles), that exit is the goal, loaded or seen earlier.
+    /// </summary>
+    private void ExitOnPlace(GameController gc, Result r, string name, string areaRawName)
+    {
+        var tiles = new HashSet<(int, int)>(r.Goals);
+        bool OnPlace(string? n, (int, int) tile) => string.Equals(n, name, StringComparison.OrdinalIgnoreCase) || tiles.Contains(tile);
+        var exit = new Result { Label = r.Label };
+        Entities(gc, exit, EntityType.AreaTransition, e => IsTargetable(e) &&
+            OnPlace(e.RenderName, TileAt(gc, areaRawName, CellOf(e)) is { } t ? (t.Coordinate.X, t.Coordinate.Y) : (-1, -1)));
+        if (exit.Goals.Count == 0)
+            Remembered(exit, s => s.Type == nameof(EntityType.AreaTransition) && s.Targetable && OnPlace(s.Name, (s.TileX, s.TileY)));
+        if (exit.Goals.Count == 0) return;
+        r.Goals.Clear();
+        r.Goals.AddRange(exit.Goals);
+        r.GoalEntities.Clear();
+        r.GoalEntities.AddRange(exit.GoalEntities);
+        r.FromEntities = true;
+        r.FromMemory = exit.FromMemory;
+        r.Label = exit.Label;
+    }
+
+    private static (int x, int y) CellOf(Entity e) =>
+        e.GetComponent<Positioned>() is { } p ? ((int)p.GridPos.X, (int)p.GridPos.Y) : (-1, -1);
 
     private void Entities(GameController gc, Result r, Func<Entity, bool> match) => Entities(gc, r, null, match);
 
