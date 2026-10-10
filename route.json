@@ -2,7 +2,7 @@
   "Name": "Act 2 (draft)",
   "Source": "Order from the Maxroll PoE2 campaign guide (updated 2026-06-02). Places are Radar targets.json names. Unverified live: check each area as you play.",
   "Quests": [
-    { "Quest": "PryTheFlameRuby", "States": [6], "Area": "G2_6", "Target": "radar:Ancient Seal", "Label": "Light the Ancient Seals (3), then the Clasped Entry", "Note": "Verified live 2026-10-10: state 6 = 'Enter the Titan Grotto at the Clasped Entry'. Radar's GrottoExit01.tdt tile is absent in this layout; the entity TitanGrottoPointOfInterest marks the entry" },
+    { "Quest": "PryTheFlameRuby", "States": [6], "Area": "G2_6", "Target": "radar:Ancient Seal", "Label": "Light the Ancient Seals (3), then the Clasped Entry", "Note": "Verified live 2026-10-10: state 6 = 'Enter the Titan Grotto at the Clasped Entry' (the G2_6 steps handle the seals and the entry)" },
     { "Quest": "BurnTheWaterGoddess", "States": [10], "Area": "G2_4_1", "Target": "radar:The Lost City", "Label": "Search for access to Keth", "Note": "Verified live 2026-10-10: state 10 = 'Search for access to Keth'" }
   ],
   "Areas": {
@@ -38,9 +38,10 @@
       { "Target": "radar:The Heart of Keth", "Label": "Azarian (The Heart of Keth)" }
     ],
     "G2_6": [
-      { "Target": "entity:Objects/AncientSeal", "State": "active=1", "Within": 60, "SkipIfNone": true, "Label": "Take the seal's portal back", "Note": "Verified live 2026-10-10: lighting seal N makes AncientSealNPortal (next to it) targetable with state active=1; it returns you to the valley path" },
-      { "Target": "radar:Ancient Seal", "ExcludeNear": { "Entity": "Objects/AncientSeal", "State": "active=1", "Radius": 40 }, "SkipIfNone": true, "Label": "Light the next Ancient Seal (step on it)", "Note": "A seal is lit when its portal is active; a far seal whose portal isn't loaded yet counts as unlit until you get near it" },
-      { "Target": "transition:G2_7|entity:Act2/2_6/Objects/TitanGrottoPointOfInterest|radar:The Titan Grotto", "Label": "The Titan Grotto (Clasped Entry)" }
+      { "Target": "entity:Objects/AncientSeal", "State": "active=1", "PlayerOn": "*TitanQuest*", "SkipIfNone": true, "Label": "Take the seal's portal", "Note": "Verified live 2026-10-10: clicking TitanValley_SwitchN (up the stairs) makes AncientSealNPortal targetable with active=1, ~90 cells from the switch on the same TitanQuest tile (a seal platform is ~185 cells wide, so no Within); the portal returns you to the valley" },
+      { "Target": "entity:QuestObjects/Four_Act2/TitanValley_Switch", "State": "active=0", "SkipIfNone": true, "Label": "Light the Ancient Seal (click it, up the stairs)", "Note": "The seal itself: Metadata/QuestObjects/Four_Act2/TitanValley_SwitchN, IngameIcon 'Ancient Seal'; active=1 and untargetable once lit. Loaded only near the platform, so the tile step below leads you there first" },
+      { "Target": "radar:Ancient Seal", "ExcludeNear": { "Entity": "TitanValley_Switch", "State": "active=1", "Radius": 160 }, "SkipIfNone": true, "Label": "Go to the next Ancient Seal", "Note": "Radar's TitanQuest01/02/03.tdt platforms; one whose switch was seen lit (loaded now or earlier this visit) is dropped. A platform never visited counts as unlit" },
+      { "Target": "transition:G2_7|entity:Act2/2_6/Objects/TitanGrottoPointOfInterest|radar:The Titan Grotto|tile:*titan_valley_boss_01*", "Label": "The Titan Grotto (Clasped Entry)", "Note": "Radar's GrottoExit01.tdt was absent in the 2026-10-10 layout; titan_valley_boss_01.tdt (the fourth corner feature) is the unverified guess for the entry. sightings.json records the G2_7 transition's tile when it is first seen: fix this step from it" }
     ],
     "G2_7": [
       { "Target": "radar:Dais of Reckoning", "Label": "Zalmarath (Dais of Reckoning)" }

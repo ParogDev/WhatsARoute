@@ -85,14 +85,33 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private double _replanUs, _tickUs, _renderUs, _resolveUs;
     private float _pathLen;
 
+    /// <summary>
+    /// Where route.json and sightings.json live. With "Avoid locking plugin dlls" the HUD runs the plugin from a copy
+    /// under Plugins\Temp, so DirectoryFullName points at a snapshot: the source folder keeps the files the user edits
+    /// (Reload Route then reads the live route.json) and the sightings the agent reads.
+    /// </summary>
+    private string DataDir
+    {
+        get
+        {
+            var dir = DirectoryFullName;
+            var i = dir.IndexOf(@"\Plugins\Temp\", StringComparison.OrdinalIgnoreCase);
+            if (i < 0) return dir;
+            var src = dir[..i] + @"\Plugins\Source\" + dir[(i + @"\Plugins\Temp\".Length)..];
+            return System.IO.Directory.Exists(src) ? src : dir;
+        }
+    }
+
     public override bool Initialise()
     {
         Name = "Whats A Route";
-        _book.Load(DirectoryFullName);
-        Settings.Route.ReloadRoute.OnPressed = () => { _book.Load(DirectoryFullName); _goalSig = ""; _nextResolve = 0; };
+        _book.Load(DataDir);
+        Settings.Route.ReloadRoute.OnPressed = () => { _book.Load(DataDir); _goalSig = ""; _nextResolve = 0; };
         GameController.PluginBridge.SaveMethod("WhatsARoute.GetState", (Func<string>)GetStateJson);
         return true;
     }
+
+    public override void OnClose() => _resolver.Sightings.Flush(DataDir);
 
     public override void AreaChange(AreaInstance area)
     {
@@ -108,6 +127,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         _resolver.ResetArea();
         _areaRaw = area?.Area?.RawName ?? "";
         _areaName = area?.Area?.Name ?? "";
+        _resolver.Sightings.ResetArea(_areaRaw, area?.Hash ?? 0, DataDir);   // writes the old area's sightings first
 
         var data = GameController.IngameState.Data;
         int[][]? pf; float[][]? height;
@@ -159,7 +179,16 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         var now = _clock.Elapsed.TotalSeconds;
 
         if (now >= _nextFlags) { _nextFlags = now + 2; ReadFlags(); }
-        if (now >= _nextResolve) { _nextResolve = now + 0.5; ResolveObjective(grid, cell); }
+        if (now >= _nextResolve)
+        {
+            _nextResolve = now + 0.5;
+            _resolver.Now = now;
+            // Places near you right now (transitions, waypoints, checkpoints, quest icons): remembered for the visit
+            // and written to sightings.json, so a goal that unloads keeps its place and a new layout can be mapped.
+            _resolver.Sightings.Scan(GameController, _areaRaw, GameController.Area.CurrentArea?.Hash ?? 0, DataDir, c => _resolver.TileAt(GameController, _areaRaw, c), now);
+            ResolveObjective(grid, cell);
+            _resolver.Sightings.FlushIfIdle(DataDir, now);
+        }
 
         var field = _field;
         if (field == null || field.Grid != grid) { _frame.Ready = false; return; }
@@ -210,8 +239,13 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         SetGoalEntity(_cells[^1]);
         _replanUs = Stopwatch.GetElapsedTime(t0).TotalMicroseconds;
 
-        // A step without a quest flag counts as done once you stand on its goal.
-        if (_stepIndex >= 0 && _cells.Count <= 4) _reachedSteps.Add(_stepIndex);
+        // A step without a quest flag counts as done once you stand on its goal. SkipIfNone steps are stateless and
+        // repeat (light the next seal, take its portal back): they are never marked reached.
+        if (_stepIndex >= 0 && _cells.Count <= 4)
+        {
+            var steps = _book.StepsFor(_areaRaw);
+            if (_stepIndex >= steps.Count || !steps[_stepIndex].SkipIfNone) _reachedSteps.Add(_stepIndex);
+        }
     }
 
     /// <summary>The goal entity nearest <paramref name="cell"/> (the path's end, else the player) gets the in-world marker.</summary>
@@ -288,8 +322,19 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     /// </summary>
     private void ApplyStepFilters(RouteStep s, (int x, int y) cell)
     {
-        if (s.Within == null && s.State == null && s.ExcludeNear == null) return;
+        if (s.Within == null && s.State == null && s.ExcludeNear == null && s.PlayerOn == null) return;
         var r = _resolved;
+        if (s.PlayerOn is { Length: > 0 } on)
+        {
+            // Only while standing on that terrain tile (a seal platform): elsewhere the step has nothing to go to.
+            var tile = _resolver.TileAt(GameController, _areaRaw, cell);
+            if (tile == null || !(RouteBook.Like(tile.Path, on) || RouteBook.Like(tile.Name, on)))
+            {
+                r.Goals.Clear(); r.GoalEntities.Clear();
+                r.Why = $"'{s.Target}': you are not on a '{on}' tile (on {tile?.Path ?? "no tile"})";
+                return;
+            }
+        }
         List<Vector2>? exclude = null;
         if (s.ExcludeNear is { Entity.Length: > 0 } ex)
         {
@@ -300,6 +345,10 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 if (ex.State != null && !HasState(e, ex.State)) continue;
                 if (e.GetComponent<Positioned>() is { } p) exclude.Add(p.GridPos);
             }
+            // Seen earlier this visit in that state and unloaded since (a lit seal far away stays lit).
+            foreach (var sg in _resolver.Sightings.Area)
+                if (sg.Path.Contains(ex.Entity, StringComparison.OrdinalIgnoreCase) && (ex.State == null || Sightings.HasState(sg.State, ex.State)))
+                    exclude.Add(new Vector2(sg.X, sg.Y));
         }
         var paired = r.GoalEntities.Count == r.Goals.Count;
         for (var i = r.Goals.Count - 1; i >= 0; i--)
@@ -616,6 +665,10 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             dto.TravelMapStops.Add(new TravelStopDto { Index = s.Index, DestId = s.DestId, DestName = s.DestName, Unlocked = s.Unlocked, Chosen = s == _chosenStop, X = (int)s.Center.X, Y = (int)s.Center.Y });
         if (_book.RouteError != null) dto.Notes.Add(_book.RouteError);
         if (_book.RadarError != null) dto.Notes.Add(_book.RadarError);
+        if (_lastCell.x != int.MinValue) dto.PlayerTile = _resolver.TileAt(GameController, _areaRaw, _lastCell)?.Path;
+        dto.Sightings = _resolver.Sightings.Area.Count;
+        if (_resolved.FromMemory) dto.Notes.Add("goals are remembered sightings (their entities are not loaded right now)");
+        if (_resolver.Sightings.Why != null) dto.Notes.Add(_resolver.Sightings.Why);
         return JsonConvert.SerializeObject(dto);
     }
 }

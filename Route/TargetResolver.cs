@@ -27,8 +27,35 @@ public sealed class TargetResolver
     private List<IngameData.Tile>? _tiles;
     private string _areaKey = "";
     private readonly Dictionary<string, string> _areaNames = new(StringComparer.OrdinalIgnoreCase);   // WorldAreas id -> name (a ~600-row scan otherwise)
+    private Dictionary<(int, int), IngameData.Tile>? _tileIndex;   // tile origin (cell / TileCells) -> tile
+    private string _currentArea = "";   // the area Resolve was last called for (entity scans record sightings under it)
+    public const int TileCells = 23;   // grid cells per terrain tile edge (tile Coordinates step by 23)
 
-    public void ResetArea() { _tiles = null; _areaKey = ""; _tileMatches.Clear(); }
+    /// <summary>Places seen in this area instance; goals fall back to them once their entity has unloaded.</summary>
+    public Sightings Sightings { get; } = new();
+    /// <summary>The plugin's clock, for the sightings' write debounce.</summary>
+    public double Now;
+
+    public void ResetArea() { _tiles = null; _tileIndex = null; _areaKey = ""; _tileMatches.Clear(); }
+
+    /// <summary>The terrain tile under a grid cell (tiles are known for the whole area on entry), or null off the map.</summary>
+    public IngameData.Tile? TileAt(GameController gc, string areaRawName, (int x, int y) cell)
+    {
+        if (_tiles == null || _areaKey != areaRawName)
+        {
+            _tiles = gc.IngameState.Data.Tiles;
+            _areaKey = areaRawName;
+            _tileMatches.Clear();
+            _tileIndex = null;
+        }
+        if (_tiles == null) return null;
+        if (_tileIndex == null)
+        {
+            _tileIndex = new Dictionary<(int, int), IngameData.Tile>(_tiles.Count);
+            foreach (var t in _tiles) _tileIndex[(t.Coordinate.X / TileCells, t.Coordinate.Y / TileCells)] = t;
+        }
+        return cell.x >= 0 && cell.y >= 0 && _tileIndex.TryGetValue((cell.x / TileCells, cell.y / TileCells), out var tile) ? tile : null;
+    }
 
     /// <summary>A goal that is an entity: where it stands and how big it is, for the in-world marker.</summary>
     public readonly record struct GoalEntity(int X, int Y, Entity Entity, Render? Render, Vector3 Pos, Vector3 Bounds);
@@ -40,6 +67,7 @@ public sealed class TargetResolver
         public string Label = "";
         public string? Why;   // the broken link, when there are no goals
         public bool FromEntities;
+        public bool FromMemory;       // the goals are remembered sightings: their entities are not loaded right now
         public string? TravelTo;      // area id when the objective is in another area
         public bool ViaTravelMap;     // the way there is the Desert Map: highlight its stop when the map opens
     }
@@ -50,6 +78,7 @@ public sealed class TargetResolver
     /// </summary>
     public void Resolve(GameController gc, RouteBook book, string spec, string areaRawName, Result r)
     {
+        _currentArea = areaRawName;
         if (!spec.Contains('|')) { ResolveOne(gc, book, spec, areaRawName, r); return; }
         var whys = new List<string>();
         foreach (var part in spec.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -67,6 +96,7 @@ public sealed class TargetResolver
         r.GoalEntities.Clear();
         r.Why = null;
         r.FromEntities = false;
+        r.FromMemory = false;
         r.TravelTo = null;
         r.ViaTravelMap = false;
         spec = spec.Trim();
@@ -96,6 +126,10 @@ public sealed class TargetResolver
                     Entities(gc, r, e => IsTargetable(e) && e.Path?.EndsWith("/Objects/MapTable", StringComparison.Ordinal) == true);
                     if (r.Goals.Count > 0) r.Label = arg.Length > 0 ? $"Desert Map: travel to {arg}" : "Desert Map: choose where to go";
                 }
+                // Seen earlier in this visit but unloaded now (you walked away): its place is still good.
+                if (r.Goals.Count == 0)
+                    Remembered(r, s => s.Type == nameof(EntityType.AreaTransition) && s.Targetable &&
+                                       (arg.Length == 0 || s.Name?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true || string.Equals(s.DestArea, arg, StringComparison.OrdinalIgnoreCase)));
                 break;
             case "travel":
             {
@@ -107,6 +141,8 @@ public sealed class TargetResolver
                 Entities(gc, r, EntityType.AreaTransition, e => IsTargetable(e) &&
                                      string.Equals(e.GetComponent<AreaTransition>()?.WorldArea?.Id, arg, StringComparison.OrdinalIgnoreCase));
                 if (r.Goals.Count > 0) break;
+                Remembered(r, s => s.Type == nameof(EntityType.AreaTransition) && s.Targetable && string.Equals(s.DestArea, arg, StringComparison.OrdinalIgnoreCase));
+                if (r.Goals.Count > 0) break;
                 Entities(gc, r, e => IsTargetable(e) && e.Path?.EndsWith("/Objects/MapTable", StringComparison.Ordinal) == true);
                 if (r.Goals.Count > 0) { r.Label = $"Desert Map: travel to {name}"; r.ViaTravelMap = true; break; }
                 Entities(gc, r, e => e.Type == EntityType.Waypoint || e.Path?.Contains("Checkpoint", StringComparison.OrdinalIgnoreCase) == true);
@@ -117,6 +153,7 @@ public sealed class TargetResolver
             case "entity":
                 r.Label = arg.Split('/').LastOrDefault() ?? arg;
                 Entities(gc, r, e => e.Path?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true);
+                if (r.Goals.Count == 0) Remembered(r, s => s.Path.Contains(arg, StringComparison.OrdinalIgnoreCase));
                 break;
             case "tile":
                 r.Label = arg;
@@ -152,16 +189,32 @@ public sealed class TargetResolver
             r.Why = r.FromEntities ? $"no '{spec}' loaded near you yet (entities only exist once the game sends them)" : $"no tile matches '{spec}' in {areaRawName}";
     }
 
-    private static void Entities(GameController gc, Result r, Func<Entity, bool> match) => Entities(gc, r, null, match);
+    private void Entities(GameController gc, Result r, Func<Entity, bool> match) => Entities(gc, r, null, match);
+
+    /// <summary>Goals from this visit's sightings (the entity unloaded when you walked away). Their place is still right.</summary>
+    private void Remembered(Result r, Func<SightingDto, bool> match)
+    {
+        var n = 0;
+        foreach (var s in Sightings.Area)
+        {
+            if (!match(s)) continue;
+            r.Goals.Add((s.X, s.Y));
+            n++;
+        }
+        if (n == 0) return;
+        r.FromMemory = true;
+        r.Label += " (seen earlier)";
+    }
 
     /// <summary>
     /// With a type, only the HUD's per-type list is walked (measured in the caravan, 513 entities: 7.2 us / 1.7 KB vs
     /// 16 us / 5.9 KB for all entities; the full scan grows with every monster and effect on a busy map, the list only
     /// with what we want). Without one (metadata-path matches), every valid entity.
     /// </summary>
-    private static void Entities(GameController gc, Result r, EntityType? type, Func<Entity, bool> match)
+    private void Entities(GameController gc, Result r, EntityType? type, Func<Entity, bool> match)
     {
         r.FromEntities = true;
+        var area = _currentArea;
         IEnumerable<Entity> source = type is { } t && gc.EntityListWrapper.ValidEntitiesByType.TryGetValue(t, out var list) ? list : gc.Entities;
         foreach (var e in source)
         {
@@ -184,6 +237,7 @@ public sealed class TargetResolver
             }
             else continue;
             r.Goals.Add(cell);
+            Sightings.Note(e, c => TileAt(gc, area, c), Now);   // a goal keeps its place after it unloads
         }
     }
 

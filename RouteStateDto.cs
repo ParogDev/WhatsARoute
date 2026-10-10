@@ -31,6 +31,10 @@ public sealed class RouteStateDto
     public string? TravelTo { get; set; }
     public bool TravelMapOpen { get; set; }
     public List<TravelStopDto> TravelMapStops { get; set; } = new();
+    /// <summary>The .tdt under the player (what a step's PlayerOn matches against).</summary>
+    public string? PlayerTile { get; set; }
+    /// <summary>Places recorded in this area instance (sightings.json has them per area).</summary>
+    public int Sightings { get; set; }
 }
 
 public sealed class TravelStopDto
