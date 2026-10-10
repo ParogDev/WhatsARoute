@@ -74,6 +74,9 @@ public sealed class WorldSettings
     public ColorNode EdgeCore { get; set; } = new(Color.FromArgb(255, 102, 224, 245));
     public ColorNode EdgeGlow { get; set; } = new(Color.FromArgb(255, 31, 158, 199));
 
+    [Menu("Keep off the game UI", "Never draw over the minimap, quest tracker, orbs, flasks, skill bar or buffs; hide while the Esc menu is open")]
+    public ToggleNode AvoidGameUi { get; set; } = new(true);
+
     [Menu("Hide while the large map is open")]
     public ToggleNode HideWithLargeMap { get; set; } = new(false);
 
@@ -121,4 +124,7 @@ public sealed class DebugSettings
 
     [Menu("Status Y")]
     public RangeNode<int> StatusY { get; set; } = new(140, 0, 2160);
+
+    [Menu("Outline the UI the route avoids", "Red boxes around each game UI element the world drawing keeps off")]
+    public ToggleNode ShowUiMask { get; set; } = new(false);
 }

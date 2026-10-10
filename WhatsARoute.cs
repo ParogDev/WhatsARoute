@@ -37,6 +37,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private readonly RouteFrame _frame = new();
     private readonly FreshView _fresh = new();
     private readonly Markers _markers = new();
+    private readonly UiMask _mask = new();
     private readonly PathShaper _shaper = new();
     private readonly List<(int x, int y)> _cells = new(4096);
     private readonly List<(int x, int y)> _nearCells = new(NearCells);
@@ -459,6 +460,13 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         if (_map.Open && _chosenStop is { } stop) DrawTravelMap(stop, core, glow, time);
         else _stopShown = -1;
         if (BigPanelOpen()) return;
+        var avoidUi = Settings.World.AvoidGameUi.Value;
+        if (avoidUi)
+        {
+            _mask.Refresh(GameController, time, ImGui.GetIO().DisplaySize);
+            if (_mask.Paused) return;
+            if (Settings.Debug.ShowUiMask) _mask.DrawOutlines();
+        }
         if (Settings.Debug.ShowStatus) DrawStatus();
         var pr = _playerRender;
         if (pr == null) return;
@@ -498,6 +506,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         Vector3? goal = showMarker ? _frame.GoalPos : _frame.Goal;
         var near = goal is { } gp ? 1f - Glow.Smooth((Vector2.Distance(new Vector2(player.X, player.Y), new Vector2(gp.X, gp.Y)) - 150f) / 450f) : 0f;
 
+        var bg = ImGui.GetBackgroundDrawList();
+        if (avoidUi) _mask.Begin(bg);
         if (_frame.Ready)
             _renderer.Draw(_frame, _edges, Settings, m, half, player, goal, near, open, open ? largeMap.MapCenter : default, open ? largeMap.MapScale : 0, time);
         if (showMarker)
@@ -507,6 +517,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             _markers.DrawEntity(dl, m, half, disp, _frame.GoalPos, modelless ? 40f : MathF.Max(_frame.GoalHalf.X, _frame.GoalHalf.Y) * 0.8f,
                 modelless ? 0f : _frame.GoalHalf.Z * 2f, _frame.Label, core, glow, time, _goalAppearedAt, near);
         }
+        if (avoidUi) _mask.End(bg);
     }
 
     /// <summary>
@@ -543,7 +554,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             _statusLine1 = $"Route  {_areaName} ({_areaRaw})  {step}{(_resolved.Label is { Length: > 0 } l ? l : _targetSpec)}";
             _statusLine2 = _why != null
                 ? $"  ! {_why}"
-                : $"  {_pathLen:0} units  goals {_resolved.Goals.Count}  field {_field?.BuildMs:0}ms  replan {_replanUs:0}us  tick {_tickUs:0}us  render {_renderUs:0}us  edges {_frame.EdgePieces.Count}  view {(_fresh.Fresh ? "fresh" : _fresh.Status)}{(_map.Open ? $"  map scan {_map.LastScanMs:0.0}ms" : "")}";
+                : $"  {_pathLen:0} units  goals {_resolved.Goals.Count}  field {_field?.BuildMs:0}ms  replan {_replanUs:0}us  tick {_tickUs:0}us  render {_renderUs:0}us  edges {_frame.EdgePieces.Count}  view {(_fresh.Fresh ? "fresh" : _fresh.Status)}{(_map.Open ? $"  map scan {_map.LastScanMs:0.0}ms" : "")}  ui {_mask.Occluders}/{_mask.FreeRects}/{_mask.LastCopies}{(_mask.Why != null ? "  ! " + _mask.Why : "")}";
         }
         var dl = ImGui.GetBackgroundDrawList();
         var p = new Vector2(Settings.Debug.StatusX.Value, Settings.Debug.StatusY.Value);
