@@ -125,20 +125,23 @@ public sealed class TargetResolver
             case "radar":
             {
                 r.Label = arg;
-                var t = book.RadarTargetsFor(areaRawName).FirstOrDefault(x => string.Equals(x.DisplayName, arg, StringComparison.OrdinalIgnoreCase));
-                if (t == null)
+                // Every row with that name: Radar lists repeated places separately (G2_6 has three "Ancient Seal").
+                var found = false;
+                foreach (var t in book.RadarTargetsFor(areaRawName))
                 {
-                    r.Why = book.RadarError ?? $"Radar targets.json has no '{arg}' for area {areaRawName}";
-                    return;
+                    if (!string.Equals(t.DisplayName, arg, StringComparison.OrdinalIgnoreCase)) continue;
+                    found = true;
+                    var before = r.Goals.Count;
+                    foreach (var alt in (t.Alternatives ?? []).Prepend(t))
+                    {
+                        if (string.Equals(t.TargetType, "Entity", StringComparison.OrdinalIgnoreCase))
+                            Entities(gc, r, e => RouteBook.Like(e.Path, alt.Name));
+                        else
+                            Tiles(gc, areaRawName, alt.Name, r);
+                        if (r.Goals.Count > before) break;
+                    }
                 }
-                foreach (var alt in (t.Alternatives ?? []).Prepend(t))
-                {
-                    if (string.Equals(t.TargetType, "Entity", StringComparison.OrdinalIgnoreCase))
-                        Entities(gc, r, e => RouteBook.Like(e.Path, alt.Name));
-                    else
-                        Tiles(gc, areaRawName, alt.Name, r);
-                    if (r.Goals.Count > 0) break;
-                }
+                if (!found) { r.Why = book.RadarError ?? $"Radar targets.json has no '{arg}' for area {areaRawName}"; return; }
                 break;
             }
             default:

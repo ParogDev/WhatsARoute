@@ -2,7 +2,7 @@
   "Name": "Act 2 (draft)",
   "Source": "Order from the Maxroll PoE2 campaign guide (updated 2026-06-02). Places are Radar targets.json names. Unverified live: check each area as you play.",
   "Quests": [
-    { "Quest": "PryTheFlameRuby", "States": [6], "Area": "G2_6", "Target": "entity:Act2/2_6/Objects/TitanGrottoPointOfInterest|transition:G2_7|radar:The Titan Grotto", "Label": "Titan Grotto (Clasped Entry)", "Note": "Verified live 2026-10-10: state 6 = 'Enter the Titan Grotto at the Clasped Entry'. Radar's GrottoExit01.tdt tile is absent in this layout; the entity TitanGrottoPointOfInterest marks the entry" },
+    { "Quest": "PryTheFlameRuby", "States": [6], "Area": "G2_6", "Target": "radar:Ancient Seal", "Label": "Light the Ancient Seals (3), then the Clasped Entry", "Note": "Verified live 2026-10-10: state 6 = 'Enter the Titan Grotto at the Clasped Entry'. Radar's GrottoExit01.tdt tile is absent in this layout; the entity TitanGrottoPointOfInterest marks the entry" },
     { "Quest": "BurnTheWaterGoddess", "States": [10], "Area": "G2_4_1", "Target": "radar:The Lost City", "Label": "Search for access to Keth", "Note": "Verified live 2026-10-10: state 10 = 'Search for access to Keth'" }
   ],
   "Areas": {
@@ -38,7 +38,8 @@
       { "Target": "radar:The Heart of Keth", "Label": "Azarian (The Heart of Keth)" }
     ],
     "G2_6": [
-      { "Target": "entity:Act2/2_6/Objects/TitanGrottoPointOfInterest|transition:G2_7|radar:The Titan Grotto", "Label": "The Titan Grotto" }
+      { "Target": "radar:Ancient Seal", "Label": "Ancient Seal (step on it)", "Note": "Quest state 6 needs all three seals lit before the Clasped Entry opens; lit-seal signal still to be mapped live" },
+      { "Target": "transition:G2_7|entity:Act2/2_6/Objects/TitanGrottoPointOfInterest|radar:The Titan Grotto", "Label": "The Titan Grotto (Clasped Entry)" }
     ],
     "G2_7": [
       { "Target": "radar:Dais of Reckoning", "Label": "Zalmarath (Dais of Reckoning)" }
