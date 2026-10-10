@@ -13,7 +13,8 @@ namespace WhatsARoute.Route;
 /// Target syntax (route.json "target", or the manual target setting):
 /// <list type="bullet">
 /// <item><c>checkpoint</c>, <c>waypoint</c>: the nearest one loaded</item>
-/// <item><c>transition</c> or <c>transition:Halani</c>: area transitions, optionally by name part</item>
+/// <item><c>transition</c>, <c>transition:Halani</c> or <c>transition:G2_4_1</c>: usable area transitions, optionally by
+/// name part or destination area id; with none open, a travel table (Act 2 caravan Desert Map) instead</item>
 /// <item><c>tile:*Thickwall_Cave_Entrance*</c>: terrain tiles by name or .tdt path (known for the whole map on entry)</item>
 /// <item><c>radar:The Halani Gates</c>: a named place from Radar's targets.json for this area</item>
 /// <item><c>entity:Metadata/QuestObjects/...</c>: entities whose metadata path contains this</item>
@@ -56,8 +57,17 @@ public sealed class TargetResolver
                 break;
             case "transition":
                 r.Label = arg.Length > 0 ? arg : "Exit";
-                Entities(gc, r, e => e.Type == EntityType.AreaTransition &&
-                                     (arg.Length == 0 || e.RenderName?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true));
+                // Only exits you can use now: the Act 2 caravan keeps one exit per destination at its doors, all
+                // untargetable while it travels; locked doors are untargetable too. Matches the name or area id.
+                Entities(gc, r, e => e.Type == EntityType.AreaTransition && IsTargetable(e) &&
+                                     (arg.Length == 0 || e.RenderName?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true ||
+                                      string.Equals(e.GetComponent<AreaTransition>()?.WorldArea?.Id, arg, StringComparison.OrdinalIgnoreCase)));
+                if (r.Goals.Count == 0)
+                {
+                    // No open exit: a travel table (the caravan's Desert Map) is the way on.
+                    Entities(gc, r, e => IsTargetable(e) && e.Path?.EndsWith("/Objects/MapTable", StringComparison.Ordinal) == true);
+                    if (r.Goals.Count > 0) r.Label = arg.Length > 0 ? $"Desert Map: travel to {arg}" : "Desert Map: choose where to go";
+                }
                 break;
             case "entity":
                 r.Label = arg.Split('/').LastOrDefault() ?? arg;
@@ -105,6 +115,8 @@ public sealed class TargetResolver
             r.Goals.Add(((int)(rd.Pos.X / AreaGrid.GridToWorld), (int)(rd.Pos.Y / AreaGrid.GridToWorld)));
         }
     }
+
+    private static bool IsTargetable(Entity e) => e.GetComponent<Targetable>() is not { } t || t.isTargetable;
 
     private void Tiles(GameController gc, string areaRawName, string pattern, Result r)
     {
