@@ -149,6 +149,9 @@ public sealed class TargetResolver
                 if (r.Goals.Count > 0) break;
                 Entities(gc, r, e => IsTargetable(e) && e.Path?.EndsWith("/Objects/MapTable", StringComparison.Ordinal) == true);
                 if (r.Goals.Count > 0) { r.Label = $"Desert Map: travel to {name}"; r.ViaTravelMap = true; break; }
+                // No exit leads there and no Desert Map here: the way on starts in town (the caravan's Desert Map, or
+                // its waypoint), and a portal is the quickest way there. The route below still leads to a waypoint.
+                r.ViaPortal = gc.Area.CurrentArea is { IsTown: false, IsHideout: false };
                 Entities(gc, r, e => e.Type == EntityType.Waypoint || e.Path?.Contains("Checkpoint", StringComparison.OrdinalIgnoreCase) == true);
                 if (r.Goals.Count > 0) { r.Label = $"Waypoint: travel to {name}"; break; }
                 // Nothing loaded near you (a boss arena): a waypoint or checkpoint seen earlier this visit, else any exit.
