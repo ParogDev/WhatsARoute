@@ -15,6 +15,8 @@ public sealed class RouteRenderer
     private const float FadeInWorld = 60f;
     private const float EdgeFull = 450f, EdgeFade = 450f;   // edges: full within, then fade over (world units)
     private const float PulseSpeed = 240f, PulseSpacing = 180f, PulseTail = 70f, PulseHead = 18f;
+    private const float ApproachWorld = 300f;                 // the last stretch of the path that lights up near the goal
+    private const float EdgeQuietNear = 150f, EdgeQuietFade = 250f;   // edges within this of the goal step back (near 1)
     private const int MaxPulses = 24;
     private const float RingR = 8f;
 
@@ -23,22 +25,29 @@ public sealed class RouteRenderer
     private string? _labelSrc, _labelText;
 
     /// <param name="player">The player's position at draw time (fresh when FreshView has it): the path starts at the live feet.</param>
-    public void Draw(RouteFrame f, EdgeMap? edges, WhatsARouteSettings s, Matrix4x4 m, Vector2 half, Vector3 player, bool largeMapOpen,
-        Vector2 mapCenter, float mapScale, double time)
+    /// <param name="goal">The point the route leads to (the marker's pad, or the tile goal); null when unknown.</param>
+    /// <param name="near">0 far from the goal .. 1 on the doorstep: the approach emphasis (see DrawPath, Comets, DrawEdges).</param>
+    public void Draw(RouteFrame f, EdgeMap? edges, WhatsARouteSettings s, Matrix4x4 m, Vector2 half, Vector3 player, Vector3? goal, float near,
+        bool largeMapOpen, Vector2 mapCenter, float mapScale, double time)
     {
         if (!f.Ready) return;
         var dl = ImGui.GetBackgroundDrawList();
         if ((dl.Flags & ImDrawListFlags.AntiAliasedLines) == 0) dl.Flags |= ImDrawListFlags.AntiAliasedLines;
         var disp = ImGui.GetIO().DisplaySize;
         var world = !(largeMapOpen && s.World.HideWithLargeMap);
-        if (world && s.World.ShowEdges && edges != null) DrawEdges(dl, f, edges, s, m, half, player, disp);
-        if (world && s.World.ShowPath) DrawPath(dl, f, s, m, half, player, disp, time);
+        if (world && s.World.ShowEdges && edges != null) DrawEdges(dl, f, edges, s, m, half, player, goal, near, disp);
+        if (world && s.World.ShowPath) DrawPath(dl, f, s, m, half, player, near, disp, time);
         if (largeMapOpen && s.Map.ShowOnLargeMap) DrawMap(dl, f, s, player, mapCenter, mapScale);
     }
 
     // ── Path ────────────────────────────────────────────────────────
 
-    private void DrawPath(ImDrawListPtr dl, RouteFrame f, WhatsARouteSettings s, Matrix4x4 m, Vector2 half, Vector3 player, Vector2 disp, double time)
+    /// <summary>
+    /// Approach emphasis: far from the goal the ribbon is calm. As the player closes in (near 0 -> 1) the ribbon
+    /// widens a little, its last ~300 units get a brighter, wider glow that runs into the pad, and the comets speed
+    /// up and bunch together so they visibly pour into it. The eye is led to the spot to click, not to every wall.
+    /// </summary>
+    private void DrawPath(ImDrawListPtr dl, RouteFrame f, WhatsARouteSettings s, Matrix4x4 m, Vector2 half, Vector3 player, float near, Vector2 disp, double time)
     {
         var w = f.Path;
         if (w.Count < 2) return;
@@ -73,9 +82,20 @@ public sealed class RouteRenderer
 
         var core = Glow.Rgb(s.World.PathCore.Value);
         var glow = Glow.Rgb(s.World.PathGlow.Value);
-        var st = new Glow.Style(18f, 0.13f, 8f, 0.26f, 0.35f, 2.6f, 0.95f, glow, core, core).Scaled(s.World.PathWidth.Value);
+        var st = new Glow.Style(18f, 0.13f, 8f, 0.26f, 0.35f, 2.6f, 0.95f, glow, core, core).Scaled(s.World.PathWidth.Value * (1f + 0.3f * near));
         Glow.StrokeChunks(dl, _pts, _alpha, n, st, 1f, disp, ref _buf);
-        if (s.World.ShowComets) Comets(dl, n, acc, time, glow, disp);
+        if (near > 0.02f && acc < far)
+        {
+            // The last stretch into the goal: a wider warm glow and a hot core, growing with nearness.
+            var hint = 0;
+            var tail = Sub(n, acc - ApproachWorld, acc, ref hint);
+            if (tail >= 2 && Glow.Visible(_buf[0], _buf[tail - 1], disp))
+            {
+                Glow.Line(dl, _buf, tail, glow, 0.22f * near, 22f * s.World.PathWidth.Value);
+                Glow.Line(dl, _buf, tail, Vector3.Lerp(core, Vector3.One, 0.5f), 0.55f * near, 3.2f * s.World.PathWidth.Value);
+            }
+        }
+        if (s.World.ShowComets) Comets(dl, n, acc, time, glow, disp, near);
 
         if (f.Goal is { } g && acc < far && !f.HasGoalBox)   // an entity goal gets the marker instead (Markers.DrawEntity)
         {
@@ -84,18 +104,22 @@ public sealed class RouteRenderer
         }
     }
 
-    private void Comets(ImDrawListPtr dl, int count, float end, double time, Vector3 glow, Vector2 disp)
+    private void Comets(ImDrawListPtr dl, int count, float end, double time, Vector3 glow, Vector2 disp, float near)
     {
         if (end < PulseHead * 2) return;
         var white = new Vector3(1f, 0.98f, 0.9f);
-        var phase = (float)(time * PulseSpeed % PulseSpacing);
+        // Near the goal the comets run faster and closer together: a stream pouring into the pad.
+        var speed = PulseSpeed * (1f + 1.1f * near);
+        var spacing = PulseSpacing * (1f - 0.45f * near);
+        var phase = (float)(time * speed % spacing);
         var hint = 0;
         for (var i = 0; i < MaxPulses; i++)
         {
-            var sPos = phase + i * PulseSpacing;
+            var sPos = phase + i * spacing;
             if (sPos - PulseTail > end) break;
             var env = AlphaAt(MathF.Min(sPos, end), count);
             if (sPos > end) env *= MathF.Max(0f, 1f - (sPos - end) / PulseTail);
+            env *= 1f + near * Glow.Smooth(1f - (end - sPos) / ApproachWorld);   // brighter as they arrive
             if (env < 0.03f) continue;
             var n = Sub(count, sPos - PulseTail, sPos, ref hint);
             if (n >= 2 && Glow.Visible(_buf[0], _buf[n - 1], disp)) Glow.Line(dl, _buf, n, white, 0.30f * env, 6.5f);
@@ -166,12 +190,18 @@ public sealed class RouteRenderer
 
     // ── Edges ───────────────────────────────────────────────────────
 
-    private void DrawEdges(ImDrawListPtr dl, RouteFrame f, EdgeMap edges, WhatsARouteSettings s, Matrix4x4 m, Vector2 half, Vector3 player, Vector2 disp)
+    /// <summary>
+    /// Terrain edges fade with distance from the player as before; near the goal they also step back around it
+    /// (within ~400 units of the goal, by up to 80% on the doorstep), so the cyan walls stop competing with the pad.
+    /// </summary>
+    private void DrawEdges(ImDrawListPtr dl, RouteFrame f, EdgeMap edges, WhatsARouteSettings s, Matrix4x4 m, Vector2 half, Vector3 player, Vector3? goal, float near, Vector2 disp)
     {
         var core = Glow.Rgb(s.World.EdgeCore.Value);
         var glow = Glow.Rgb(s.World.EdgeGlow.Value);
         var st = new Glow.Style(10f, 0.10f, 4.5f, 0.22f, 0.25f, 1.6f, 0.85f, glow, core, Vector3.Lerp(core, Vector3.One, 0.6f));
         var p2 = new Vector2(player.X, player.Y);
+        var g2 = goal is { } gp ? new Vector2(gp.X, gp.Y) : default;
+        var stepBack = goal != null ? 0.8f * near : 0f;
         foreach (var idx in f.EdgePieces)
         {
             if (idx >= edges.Pieces.Count) continue;
@@ -182,8 +212,10 @@ public sealed class RouteRenderer
             for (var i = 0; i < w.Length; i++)
             {
                 _pts[i] = Glow.Project(m, half, w[i]);
-                var d = Vector2.Distance(new Vector2(w[i].X, w[i].Y), p2);
-                _alpha[i] = 1f - Glow.Smooth((d - EdgeFull) / EdgeFade);
+                var w2 = new Vector2(w[i].X, w[i].Y);
+                var a = 1f - Glow.Smooth((Vector2.Distance(w2, p2) - EdgeFull) / EdgeFade);
+                if (stepBack > 0f) a *= 1f - stepBack * (1f - Glow.Smooth((Vector2.Distance(w2, g2) - EdgeQuietNear) / EdgeQuietFade));
+                _alpha[i] = a;
                 any |= _alpha[i] > 0.02f;
             }
             if (any) Glow.StrokeChunks(dl, _pts, _alpha, w.Length, st, 1f, disp, ref _buf);

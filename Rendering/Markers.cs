@@ -30,61 +30,44 @@ public sealed class Markers
     // ── World: an entity's bounding box ──────────────────────────────
 
     /// <summary>
-    /// The marker around an entity standing at <paramref name="pos"/> (its ground point: the footprint is drawn at
-    /// pos.Z) with <paramref name="half"/> = half extents x, y on the ground and z = the FULL height above the ground
-    /// (up is -z). Projected with the frame's fresh camera. Nothing is drawn while every point is off screen.
+    /// "Walk here and click this": a map pin on the interactable. A landing pad on the ground at its ground point
+    /// <paramref name="pos"/> (a soft gold disc the path and its comets run into, a crisp rim, a sonar ring every
+    /// 2.2 s), one hairline rising from the pad's centre to just above the object's top (<paramref name="height"/>
+    /// above the ground, up is -z), a chevron pointing down at it, and the name. Nothing of the object is covered.
+    /// <paramref name="near"/> 0..1 (far -> at the door) brings the pad up: a dim ring from far away, a bright
+    /// receiving disc on the doorstep. Projected with the frame's fresh camera; nothing is drawn off screen.
     /// </summary>
-    public void DrawEntity(ImDrawListPtr dl, in Matrix4x4 m, Vector2 halfScreen, Vector2 disp, Vector3 pos, Vector3 half,
-        string label, Vector3 core, Vector3 glow, double time, double appearedAt)
+    public void DrawEntity(ImDrawListPtr dl, in Matrix4x4 m, Vector2 halfScreen, Vector2 disp, Vector3 pos, float padR, float height,
+        string label, Vector3 core, Vector3 glow, double time, double appearedAt, float near)
     {
         var age = time - appearedAt;
         var snap = Glow.Smooth((float)(age / SnapSec));
         var breath = 0.5f + 0.5f * MathF.Sin((float)(time * Math.PI * 2 / BreathSec));
-        var bx = MathF.Max(half.X, 12f) + 10f;
-        var by = MathF.Max(half.Y, 12f) + 10f;
-        var height = half.Z;
+        var r = MathF.Max(padR, 28f);
+        var lift = 0.35f + 0.65f * near;   // how present the pad is
 
-        // Footprint ellipse on the ground.
-        var any = Ellipse(m, halfScreen, disp, pos, bx, by);
-        if (!any) return;
-        var st = new Glow.Style(10f, 0.12f, 4.5f, 0.22f, 0.32f, 1.8f, 0.78f + 0.2f * breath, glow, core, core);
-        Glow.Layers(dl, _ring, RingPts + 1, 0.9f * snap, st);
+        // Landing pad: a soft disc (two fills, the inner brighter), its rim with the path's glow layers, and a dot.
+        if (!Ellipse(m, halfScreen, disp, pos, r, r)) return;
+        dl.AddConvexPolyFilled(ref _ring[0], RingPts, Glow.Col(glow, (0.06f + 0.10f * near + 0.05f * breath * near) * snap));
+        var st = new Glow.Style(9f, 0.10f + 0.10f * near, 4f, 0.20f + 0.12f * near, 0.30f, 1.7f, (0.6f + 0.25f * near) + 0.15f * breath, glow, core, core);
+        Glow.Layers(dl, _ring, RingPts + 1, snap * lift, st);
+        if (Ellipse(m, halfScreen, disp, pos, r * 0.45f, r * 0.45f))
+            dl.AddConvexPolyFilled(ref _ring[0], RingPts, Glow.Col(core, (0.08f + 0.22f * near) * snap));
+        var centre = Glow.Project(m, halfScreen, pos);
+        dl.AddCircleFilled(centre, 2.6f, Glow.Col(core, 0.9f * snap), 12);
 
-        // Sonar: one ring growing out of the footprint and fading.
+        // Sonar: one ring growing out of the pad and fading.
         var k = (float)(age % SonarSec / SonarSec);
-        if (age > 0.3)
-        {
-            var grow = 1f + 0.55f * Glow.Smooth(k);
-            if (Ellipse(m, halfScreen, disp, pos, bx * grow, by * grow))
-                Glow.Line(dl, _ring, RingPts + 1, glow, 0.5f * (1f - k) * snap, 1.6f);
-        }
+        if (age > 0.3 && Ellipse(m, halfScreen, disp, pos, r * (1f + 0.6f * Glow.Smooth(k)), r * (1f + 0.6f * Glow.Smooth(k))))
+            Glow.Line(dl, _ring, RingPts + 1, glow, (0.3f + 0.3f * near) * (1f - k) * snap, 1.6f);
 
-        // Corner brackets on the ground, sliding in from outside, and risers up the model's corners.
-        var slide = (1f - snap) * 24f;
-        var len = MathF.Min(bx, by) * 0.55f;
-        var rise = height > 6f ? MathF.Max(height * 0.45f, 24f) : 0f;
-        for (var i = 0; i < 4; i++)
-        {
-            var sx = i is 0 or 3 ? -1f : 1f;
-            var sy = i < 2 ? -1f : 1f;
-            var cx = pos.X + sx * (bx + slide);
-            var cy = pos.Y + sy * (by + slide);
-            var corner = new Vector3(cx, cy, pos.Z);
-            _seg[0] = Glow.Project(m, halfScreen, new Vector3(cx - sx * len, cy, pos.Z));
-            _seg[1] = Glow.Project(m, halfScreen, corner);
-            _seg[2] = Glow.Project(m, halfScreen, new Vector3(cx, cy - sy * len, pos.Z));
-            if (!Glow.Visible(_seg[0], _seg[2], disp)) continue;
-            dl.AddPolyline(ref _seg[0], 3, Glow.Col(Ink, 0.55f * snap), ImDrawFlags.None, 5f);
-            dl.AddPolyline(ref _seg[0], 3, Glow.Col(core, (0.8f + 0.2f * breath) * snap), ImDrawFlags.None, 2.2f);
-            if (rise <= 0f) continue;
-            var top = Glow.Project(m, halfScreen, new Vector3(cx, cy, pos.Z - rise));
-            dl.AddLine(_seg[1], top, Glow.Col(Ink, 0.45f * snap), 4f);
-            dl.AddLine(_seg[1], top, Glow.Col(core, 0.65f * snap), 1.6f);
-        }
-
-        // Chevron and label above the top.
-        var apex = Glow.Project(m, halfScreen, new Vector3(pos.X, pos.Y, pos.Z - height - 18f));
+        // The pin: one hairline from the pad to just above the object's top, then the chevron and the name.
+        var top = MathF.Max(height, 60f) + 16f;
+        var apex = Glow.Project(m, halfScreen, new Vector3(pos.X, pos.Y, pos.Z - top));
         if (!Glow.OnScreen(apex, disp, 40f)) return;
+        var pinTop = new Vector2(apex.X, apex.Y + 4f);
+        dl.AddLine(centre, pinTop, Glow.Col(Ink, 0.45f * snap), 3f);
+        dl.AddLine(centre, pinTop, Glow.Col(core, 0.55f * snap), 1f);
         Chevron(dl, apex, time, snap, core, glow);
         Pill(dl, label, new Vector2(apex.X, apex.Y - 30f), disp, glow, snap);
     }

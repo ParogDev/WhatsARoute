@@ -376,19 +376,24 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         // cell. The pad goes on the ground the path uses at that cell (AreaGrid Z), falling back to Pos.Z + Bounds.Z,
         // and the pin rises by the full height (2 x Bounds.Z). Measured 2026-10-10 by the Valley exit: drawn at Pos
         // the marker sat 110 px above the doorway floor.
-        var showMarker = _frame.HasGoalBox && Settings.World.ShowGoalMarker.Value && !(open && Settings.World.HideWithLargeMap.Value) && _goalRender != null;
+        // A model-less goal (Positioned + ProximityTrigger only, e.g. a point of interest inside blocked ground) has
+        // no Render: the pad then sits where the path ends (the nearest walkable cell), with nothing to frame.
+        var showMarker = _frame.HasGoalBox && Settings.World.ShowGoalMarker.Value && !(open && Settings.World.HideWithLargeMap.Value);
+        var modelless = false;
         if (showMarker)
         {
             if (_goalEntity is not { IsValid: true }) { _frame.HasGoalBox = false; showMarker = false; }
-            else
+            else if (_goalRender is { } gr)
             {
-                var live = _goalRender!.Pos;
+                var live = gr.Pos;
                 var g = _grid;
                 var ground = g != null && g.InBounds((int)(live.X / AreaGrid.GridToWorld), (int)(live.Y / AreaGrid.GridToWorld))
                     ? g.HeightAt(live.X / AreaGrid.GridToWorld, live.Y / AreaGrid.GridToWorld)
                     : live.Z + _frame.GoalHalf.Z;
                 _frame.GoalPos = new Vector3(live.X, live.Y, ground);
             }
+            else if (_frame.Goal is { } pathEnd) { _frame.GoalPos = pathEnd; modelless = true; }
+            else showMarker = false;   // the path's end is beyond the near part: the ribbon leads the way until then
         }
         // Approach emphasis: 0 beyond ~600 world units from the goal, 1 within 150 (the doorstep).
         Vector3? goal = showMarker ? _frame.GoalPos : _frame.Goal;
@@ -400,8 +405,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         {
             var dl = ImGui.GetBackgroundDrawList();
             if ((dl.Flags & ImDrawListFlags.AntiAliasedLines) == 0) dl.Flags |= ImDrawListFlags.AntiAliasedLines;
-            _markers.DrawEntity(dl, m, half, disp, _frame.GoalPos, MathF.Max(_frame.GoalHalf.X, _frame.GoalHalf.Y) * 0.8f, _frame.GoalHalf.Z * 2f,
-                _frame.Label, core, glow, time, _goalAppearedAt, near);
+            _markers.DrawEntity(dl, m, half, disp, _frame.GoalPos, modelless ? 40f : MathF.Max(_frame.GoalHalf.X, _frame.GoalHalf.Y) * 0.8f,
+                modelless ? 0f : _frame.GoalHalf.Z * 2f, _frame.Label, core, glow, time, _goalAppearedAt, near);
         }
     }
 
