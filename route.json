@@ -1,0 +1,54 @@
+{
+  "Name": "Act 2 (draft)",
+  "Source": "Order from the Maxroll PoE2 campaign guide (updated 2026-06-02). Places are Radar targets.json names. Unverified live: check each area as you play.",
+  "Areas": {
+    "G2_10_1": [
+      { "Target": "radar:Artificers Orb", "Label": "Faridun War Cache (Artificer's Orb)", "Optional": true },
+      { "Target": "radar:Mawdun Mine", "Label": "Mawdun Mine" }
+    ],
+    "G2_10_2": [
+      { "Target": "radar:Munitions Bunker", "Label": "Rudja (Munitions Bunker)" }
+    ],
+    "G2_2": [
+      { "Target": "radar:Bell Chest (Skill Gem Level 6)", "Label": "Bell Chest (Uncut Skill Gem)", "Optional": true },
+      { "Target": "radar:Prison of the Disgraced (Djinn Barya)", "Label": "Balbala (Djinn Barya)", "Optional": true },
+      { "Target": "radar:The Halani Gates", "Label": "The Halani Gates" }
+    ],
+    "G2_5_1": [
+      { "Target": "radar:Rare Chest + T2 Support Gem", "Label": "Rare Chest + T2 Support Gem", "Optional": true },
+      { "Target": "radar:The Bone Pits", "Label": "The Bone Pits" }
+    ],
+    "G2_5_2": [
+      { "Target": "radar:Blackrib Pit", "Label": "Iktab and Ekbab (Blackrib Pit)" }
+    ],
+    "G2_4_1": [
+      { "Target": "radar:Kabala (+2 Passive)", "Label": "Kabala (+2 Passive)", "Optional": true },
+      { "Target": "radar:The Lost City", "Label": "The Lost City" }
+    ],
+    "G2_4_2": [
+      { "Target": "radar:Golden Tomb (Spirit Gem Level 7)", "Label": "Golden Tomb (Spirit Gem)", "Optional": true },
+      { "Target": "radar:Buried Shrines", "Label": "Buried Shrines" }
+    ],
+    "G2_4_3": [
+      { "Target": "radar:Elemental Offering (Res Ring)", "Label": "Elemental Offering (Res Ring)", "Optional": true },
+      { "Target": "radar:The Heart of Keth", "Label": "Azarian (The Heart of Keth)" }
+    ],
+    "G2_6": [
+      { "Target": "radar:The Titan Grotto", "Label": "The Titan Grotto" }
+    ],
+    "G2_7": [
+      { "Target": "radar:Dais of Reckoning", "Label": "Zalmarath (Dais of Reckoning)" }
+    ],
+    "G2_8": [
+      { "Target": "radar:Fallen Dekhara (+2 Passive)", "Label": "Fallen Dekhara (+2 Passive)", "Optional": true },
+      { "Target": "radar:Path of Mourning", "Label": "Path of Mourning" }
+    ],
+    "G2_9_1": [
+      { "Target": "radar:The Spires of Deshar", "Label": "The Spires of Deshar" }
+    ],
+    "G2_9_2": [
+      { "Target": "radar:Sisters of Garukhan (10% Lightning Res)", "Label": "Sisters of Garukhan (10% Lightning Res)", "Optional": true },
+      { "Target": "radar:Arena", "Label": "Tor Gul (Arena)" }
+    ]
+  }
+}
