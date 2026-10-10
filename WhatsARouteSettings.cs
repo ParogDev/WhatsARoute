@@ -116,14 +116,20 @@ public sealed class MapSettings
 [Submenu(CollapsedByDefault = true)]
 public sealed class DebugSettings
 {
-    [Menu("Status line", "Objective, path length and timings at the top-left")]
+    [Menu("Objective card", "The current objective, its step in the area, the distance left and, when the route is not just routing, one line saying what it is doing")]
     public ToggleNode ShowStatus { get; set; } = new(true);
 
-    [Menu("Status X")]
+    [Menu("Card X")]
     public RangeNode<int> StatusX { get; set; } = new(12, 0, 3840);
 
-    [Menu("Status Y")]
+    [Menu("Card Y")]
     public RangeNode<int> StatusY { get; set; } = new(140, 0, 2160);
+
+    [Menu("Card max width (px)", "Long names are shortened with an ellipsis; the card is narrower when its text is")]
+    public RangeNode<int> StatusWidth { get; set; } = new(330, 220, 480);
+
+    [Menu("Detailed status", "Under the card: area id, target spec, path length, goals, timings (field/replan/tick/render/resolve), view state, UI mask counts and the raw reason behind a problem")]
+    public ToggleNode DetailedStatus { get; set; } = new(false);
 
     [Menu("Outline the UI the route avoids", "Red boxes around each game UI element the world drawing keeps off")]
     public ToggleNode ShowUiMask { get; set; } = new(false);

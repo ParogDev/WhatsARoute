@@ -648,10 +648,17 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         _markers.DrawStop(dl, stop.Center, stop.Size, disp, stop.DestName.Length > 0 ? stop.DestName : _resolved.Label, core, glow, time, _stopAppearedAt);
     }
 
-    private string _statusLine1 = "", _statusLine2 = "";
+    private readonly StatusPanel _status = new();
+    private StatusPanel.Input _statusIn;
+    private string _statusGoalLabel = "";     // the objective's own name, kept from before the route turned to an exit
+    private string? _statusDetail;
     private double _nextStatus;
 
-    /// <summary>The debug status line: its strings are rebuilt 4x per second, not per frame (no per-frame garbage).</summary>
+    /// <summary>
+    /// The objective card (Rendering/StatusPanel): the plugin's state is sampled 4x per second; the panel rebuilds its
+    /// strings only when something it shows changed, and a frame is a few draw calls. The dev dump (timings, the raw
+    /// reason) is built only while Debug "Detailed status" is on.
+    /// </summary>
     private void DrawStatus()
     {
         var now = _clock.Elapsed.TotalSeconds;
@@ -659,19 +666,66 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         {
             _nextStatus = now + 0.25;
             var steps = _book.StepsFor(_areaRaw);
-            var step = _stepIndex >= 0 ? $"step {_stepIndex + 1}/{steps.Count}: " : "";
-            _statusLine1 = $"Route  {_areaName} ({_areaRaw})  {step}{(_resolved.Label is { Length: > 0 } l ? l : _targetSpec)}";
-            _statusLine2 = _why != null
-                ? $"  ! {_why}"
-                : $"  {_pathLen:0} units  goals {_resolved.Goals.Count}  field {_field?.BuildMs:0}ms  replan {_replanUs:0}us  tick {_tickUs:0}us  render {_renderUs:0}us  edges {_frame.EdgePieces.Count}  view {(_fresh.Fresh ? "fresh" : _fresh.Status)}{(_map.Open ? $"  map scan {_map.LastScanMs:0.0}ms" : "")}  ui {_mask.Occluders}/{_mask.FreeRects}/{_mask.LastCopies}{(_mask.Why != null ? "  ! " + _mask.Why : "")}";
+            var includeOptional = Settings.Route.IncludeOptional.Value;
+            var shown = 0; var current = -1; var done = 0UL;
+            for (var i = 0; i < steps.Count; i++)
+            {
+                var s = steps[i];
+                if (s.Optional && !includeOptional) continue;
+                if (i == _stepIndex) current = shown;
+                if (shown < 64 && StepReached(i, s)) done |= 1UL << shown;
+                shown++;
+            }
+            if (_blockedField == null && _resolved.Label.Length > 0) _statusGoalLabel = _resolved.Label;
+            var route = Settings.Route.Mode.Value == "Route";
+            var grid = _grid;
+            var field = _field;
+            var travel = _resolved.TravelTo != null;
+            var questTarget = route && _stepIndex < 0 && _questObj != null && !travel;
+            if (Settings.Debug.DetailedStatus.Value)
+                _statusDetail = $"{_areaRaw}  ·  {(_stepIndex >= 0 ? $"step {_stepIndex + 1}/{steps.Count}  ·  " : "")}{_targetSpec}\n"
+                    + $"{_pathLen:0} units  ·  goals {_resolved.Goals.Count}  ·  field {field?.BuildMs:0} ms  ·  edges {_frame.EdgePieces.Count}\n"
+                    + $"replan {_replanUs:0} µs  ·  tick {_tickUs:0} µs  ·  render {_renderUs:0} µs  ·  resolve {_resolveUs:0} µs\n"
+                    + $"view {(_fresh.Fresh ? "fresh" : _fresh.Status)}  ·  ui {_mask.Occluders}/{_mask.FreeRects}/{_mask.LastCopies}"
+                    + (_map.Open ? $"  ·  map scan {_map.LastScanMs:0.0} ms" : "") + (_mask.Why != null ? "\nui mask: " + _mask.Why : "")
+                    + (_why != null ? "\nwhy: " + _why : "");
+            else _statusDetail = null;
+            _statusIn = new StatusPanel.Input
+            {
+                Area = _areaName,
+                Label = _resolved.Label.Length > 0 ? _resolved.Label : _targetSpec,
+                GoalLabel = _statusGoalLabel,
+                Manual = !route,
+                NoRoute = route && _stepIndex < 0 && !questTarget && !travel,
+                QuestTarget = questTarget,
+                StepIndex = current,
+                StepCount = shown,
+                DoneMask = done,
+                Note = _stepIndex >= 0 && _stepIndex < steps.Count ? steps[_stepIndex].Note : null,
+                Why = _why,
+                AreaWhy = _areaWhy,
+                GridReady = grid != null,
+                FieldReady = field != null && field.Grid == grid,
+                PathReady = _frame.Ready,
+                Blocked = _blockedField != null,
+                FromMemory = _resolved.FromMemory,
+                HasTravelTo = travel,
+                ViaTravelMap = _resolved.ViaTravelMap,
+                TravelMapOpen = _map.Open,
+                StopChosen = _chosenStop != null,
+                PathLen = _pathLen,
+                PathCells = _cells.Count,
+                Detail = _statusDetail,
+            };
+            _status.Update(_statusIn, Settings.Debug.StatusWidth.Value, now);
         }
-        var dl = ImGui.GetBackgroundDrawList();
-        var p = new Vector2(Settings.Debug.StatusX.Value, Settings.Debug.StatusY.Value);
-        var size = Vector2.Max(ImGui.CalcTextSize(_statusLine1), ImGui.CalcTextSize(_statusLine2));
-        dl.AddRectFilled(p - new Vector2(6, 4), p + new Vector2(size.X + 6, size.Y * 2 + 6), 0xB0101418, 4f);
-        dl.AddText(p, 0xFFD8F0FF, _statusLine1);
-        dl.AddText(p + new Vector2(0, size.Y + 2), _why != null ? 0xFF7AB4FFu : 0xFFB0B8C0u, _statusLine2);
+        _status.Draw(ImGui.GetBackgroundDrawList(), new Vector2(Settings.Debug.StatusX.Value, Settings.Debug.StatusY.Value),
+            Glow.Rgb(Settings.World.PathCore.Value), Glow.Rgb(Settings.World.PathGlow.Value), now);
     }
+
+    /// <summary>A step already reached or flagged done, from what Tick recorded: no entity scan (StepDone's SeenEnough) on the render path.</summary>
+    private bool StepReached(int i, RouteStep s) =>
+        _reachedSteps.Contains(i) || (s.DoneFlag != null && _flags.TryGetValue(s.DoneFlag, out var v) && v);
 
     private string GetStateJson()
     {
