@@ -424,6 +424,30 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         _renderUs = _renderUs * 0.9 + 0.1 * Stopwatch.GetElapsedTime(t0).TotalMicroseconds;
     }
 
+    private readonly List<ExileCore2.PoEMemory.Element> _bigPanels = new(24);
+    private long _bigPanelsUi;
+
+    /// <summary>
+    /// Any fullscreen or large panel open (passive tree, inventory, stash...): the world drawing hides. These are
+    /// top-level panels whose parent is always shown, so their own flag (IsVisibleLocal) is the answer: IsVisible
+    /// walks the parents and allocated ~3 KB per panel per frame (profiled 2026-10-10: 12.5 KB and 46 us per frame
+    /// for the 19 panels). The panel lists are fetched again only when the UI object changes.
+    /// </summary>
+    private bool BigPanelOpen()
+    {
+        var ui = GameController.IngameState.IngameUi;
+        if (ui.Address != _bigPanelsUi || _bigPanels.Count == 0)
+        {
+            _bigPanels.Clear();
+            _bigPanels.AddRange(ui.FullscreenPanels);
+            _bigPanels.AddRange(ui.LargePanels);
+            _bigPanelsUi = ui.Address;
+        }
+        foreach (var p in _bigPanels)
+            if (p.IsVisibleLocal) return true;
+        return false;
+    }
+
     private void RenderBody()
     {
         if (Settings.Route.NextStep.PressedOnce()) { _stepShift++; _nextResolve = 0; }
@@ -434,8 +458,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         var glow = Glow.Rgb(Settings.World.PathGlow.Value);
         if (_map.Open && _chosenStop is { } stop) DrawTravelMap(stop, core, glow, time);
         else _stopShown = -1;
-        var ui = GameController.IngameState.IngameUi;
-        if (ui.FullscreenPanels.Any(x => x.IsVisible) || ui.LargePanels.Any(x => x.IsVisible)) return;
+        if (BigPanelOpen()) return;
         if (Settings.Debug.ShowStatus) DrawStatus();
         var pr = _playerRender;
         if (pr == null) return;
@@ -443,7 +466,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         // The view at draw time: fresh camera and feet, as of DelayMs ago (FreshView), else the HUD's per-frame copy.
         _fresh.Sample(GameController, pr, Settings.World.DelayMs.Value, Settings.World.FreshView.Value, out var m, out var half, out var player);
         var disp = ImGui.GetIO().DisplaySize;
-        var largeMap = ui.Map.LargeMap.AsObject<SubMap>();
+        var largeMap = GameController.IngameState.IngameUi.Map.LargeMap.AsObject<SubMap>();
         var open = largeMap.IsVisible;
 
         // The thing to click, at its live position (a transition can move: Pos is read every frame from the cached
