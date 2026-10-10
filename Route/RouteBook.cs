@@ -25,6 +25,8 @@ public sealed class RouteStep
     public string? State { get; set; }
     /// <summary>Drop goals that have a matching entity in this state nearby (a lit seal has an active portal).</summary>
     public ExcludeNearRule? ExcludeNear { get; set; }
+    /// <summary>The step applies only while the player stands on a terrain tile matching this pattern (e.g. "*TitanQuest*": a seal platform).</summary>
+    public string? PlayerOn { get; set; }
 }
 
 public sealed class ExcludeNearRule
