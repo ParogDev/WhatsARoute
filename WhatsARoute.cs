@@ -56,6 +56,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
 
     // objective
     private volatile FlowField? _field;
+    private FlowField? _blockedField;           // the objective's field when the player was on another island
+    private string _blockedSpec = "";
     private string _goalSig = "";
     private CancellationTokenSource _fieldCts = new();
     private double _nextResolve;
@@ -118,7 +120,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         _areaCts.Cancel();
         _areaCts = new CancellationTokenSource();
         _fieldCts.Cancel();
-        _grid = null; _edges = null; _field = null; _goalSig = ""; _why = null; _areaWhy = null;
+        _grid = null; _edges = null; _field = null; _blockedField = null; _goalSig = ""; _why = null; _areaWhy = null;
         _frame.Ready = false; _frame.Path.Clear(); _frame.MapPath.Clear(); _frame.MapPathZ.Clear(); _frame.EdgePieces.Clear();
         _lastCell = (int.MinValue, 0); _lastFieldUsed = null; _lastEdgesUsed = null;
         _stepShift = 0; _stepIndex = -1; _reachedSteps.Clear(); _nextResolve = 0; _nextFlags = 0;
@@ -206,6 +208,9 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         if (!field.Descend(cell, _cells, MaxCells, out var why))
         {
             _why = why;
+            // The player stands on another island than the goal (a boss arena after the fight): lead to a way off it
+            // instead of drawing nothing. Not when this field already is the way off (no exit on this island).
+            if (_blockedField == null && field.Snap(cell) == null) { _blockedField = field; _blockedSpec = _targetSpec; _nextResolve = 0; }
             _frame.Ready = false;
             return;
         }
@@ -424,8 +429,9 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             _stepIndex = -1;
             spec = "travel:" + q.Area;
         }
-        else if (q?.Target is { Length: > 0 } qt && steps.Count == 0)
+        else if (q?.Target is { Length: > 0 } qt)
         {
+            // In the quest's area its target is the objective: the quest state is live, the area's steps are a plan.
             _stepIndex = -1;
             spec = qt;
         }
@@ -474,6 +480,19 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         Resolved:
         if (_stepIndex >= 0 && steps[_stepIndex].Label is { Length: > 0 } label) _resolved.Label = label;
         else if (q?.Label is { Length: > 0 } ql && spec == q.Target) _resolved.Label = ql;
+        if (_blockedField != null)
+        {
+            // Still cut off from this objective: the nearest exit reachable from here (loaded or seen this visit).
+            if (_blockedSpec != spec || _blockedField.Grid != grid || _blockedField.Snap(cell) != null) _blockedField = null;
+            else
+            {
+                var target = _resolved.Label;
+                _resolver.Resolve(GameController, _book, "transition:", _areaRaw, _resolved);
+                _resolved.Label = $"Way out ({target} is not reachable from here)";
+                if (_resolved.Goals.Count == 0) _resolved.Why = $"cut off from '{target}' and no exit seen on this part of the area";
+                spec = "exit-from:" + spec;
+            }
+        }
         if (_resolved.Goals.Count == 0)
         {
             _why = _resolved.Why;
