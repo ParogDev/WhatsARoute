@@ -54,6 +54,7 @@ public sealed class Sightings
 
     public void ResetArea(string areaRaw, uint hash, string pluginDir)
     {
+        _write?.Wait(1000);   // a write still running would make Flush skip the old area's last rows
         Flush(pluginDir);
         _area.Clear(); _list.Clear();
         _areaRaw = areaRaw; _hash = hash;

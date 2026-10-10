@@ -355,7 +355,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         {
             var g = r.Goals[i];
             var drop = s.Within is { } w && Math.Max(Math.Abs(g.x - cell.x), Math.Abs(g.y - cell.y)) > w;
-            if (!drop && s.State != null) drop = !paired || !HasState(r.GoalEntities[i].Entity, s.State);
+            if (!drop && s.State != null) drop = paired ? !HasState(r.GoalEntities[i].Entity, s.State) : !RememberedInState(g, s.State);
             if (!drop && exclude != null)
                 foreach (var p in exclude)
                     if (Vector2.Distance(p, new Vector2(g.x, g.y)) <= s.ExcludeNear!.Radius) { drop = true; break; }
@@ -364,6 +364,14 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             if (paired) r.GoalEntities.RemoveAt(i);
         }
         if (r.Goals.Count == 0 && r.Why == null) r.Why = $"'{s.Target}': nothing left after the step's filters (Within/State/ExcludeNear)";
+    }
+
+    /// <summary>A remembered goal (its entity unloaded) is in <paramref name="state"/> when its last sighting was.</summary>
+    private bool RememberedInState((int x, int y) g, string state)
+    {
+        foreach (var sg in _resolver.Sightings.Area)
+            if (sg.X == g.x && sg.Y == g.y && Sightings.HasState(sg.State, state)) return true;
+        return false;
     }
 
     private static bool HasState(Entity e, string nameEqValue)
