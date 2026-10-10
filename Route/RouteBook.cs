@@ -27,6 +27,16 @@ public sealed class RouteStep
     public ExcludeNearRule? ExcludeNear { get; set; }
     /// <summary>The step applies only while the player stands on a terrain tile matching this pattern (e.g. "*TitanQuest*": a seal platform).</summary>
     public string? PlayerOn { get; set; }
+    /// <summary>The step is done for the rest of the visit once this many distinct entities matching it were seen in that state (all three seal portals active).</summary>
+    public DoneWhenSeenRule? DoneWhenSeen { get; set; }
+}
+
+public sealed class DoneWhenSeenRule
+{
+    /// <summary>Path substring; distinct full paths are counted (AncientSeal1Portal, 2, 3).</summary>
+    public string Entity { get; set; } = "";
+    public string? State { get; set; }
+    public int Count { get; set; } = 1;
 }
 
 public sealed class ExcludeNearRule

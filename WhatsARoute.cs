@@ -378,8 +378,33 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         return false;
     }
 
-    private bool StepDone(int i, RouteStep s) =>
-        _reachedSteps.Contains(i) || (s.DoneFlag != null && _flags.TryGetValue(s.DoneFlag, out var v) && v);
+    private bool StepDone(int i, RouteStep s)
+    {
+        if (_reachedSteps.Contains(i) || (s.DoneFlag != null && _flags.TryGetValue(s.DoneFlag, out var v) && v)) return true;
+        if (s.DoneWhenSeen is not { Entity.Length: > 0 } dw || !SeenEnough(dw)) return false;
+        _reachedSteps.Add(i);
+        return true;
+    }
+
+    /// <summary>
+    /// Distinct entity paths matching <paramref name="dw"/> in its state, loaded now or remembered this visit. Loaded
+    /// matches are noted first, so a state that changed while the step wasn't resolving (a seal lit while the portal
+    /// step showed) still counts after the entity unloads.
+    /// </summary>
+    private bool SeenEnough(DoneWhenSeenRule dw)
+    {
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in GameController.Entities)
+        {
+            if (!e.IsValid || e.Path?.Contains(dw.Entity, StringComparison.OrdinalIgnoreCase) != true) continue;
+            _resolver.Sightings.Note(e, c => _resolver.TileAt(GameController, _areaRaw, c), _resolver.Now);
+            if (dw.State == null || HasState(e, dw.State)) paths.Add(e.Path);
+        }
+        foreach (var sg in _resolver.Sightings.Area)
+            if (sg.Path.Contains(dw.Entity, StringComparison.OrdinalIgnoreCase) && (dw.State == null || Sightings.HasState(sg.State, dw.State)))
+                paths.Add(sg.Path);
+        return paths.Count >= dw.Count;
+    }
 
     private void ResolveObjective(AreaGrid grid, (int x, int y) cell)
     {
