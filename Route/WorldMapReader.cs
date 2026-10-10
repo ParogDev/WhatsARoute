@@ -135,7 +135,7 @@ public sealed class WorldMapReader
         if (gc.Memory.Read<long>(n.Address + AreaPtrOffset) != anchor.AreaRow) { Why = $"stop {anchor.Index}: node no longer points at its area row (map rebuilt), waiting for the next scan"; return false; }
         var r = n.GetClientRect();
         if (r.Width <= 0) return false;
-        var live = new Vector2(r.Center.X + PanCorrectionX(gc, r.X, anchor.NodePosX), r.Center.Y);
+        var live = new Vector2(r.Center.X + PanCorrectionX(gc), r.Center.Y);
         var scale = anchor.ScanSize > 0 ? r.Width / anchor.ScanSize : 1f;
         foreach (var s in Stops)
         {
@@ -157,11 +157,17 @@ public sealed class WorldMapReader
     /// element's cached memory and trailed a drag visibly (the user: "super laggy"). The HUD computes
     /// rect.X = (pan + nodePos.X) * sy with nodePos fixed per node, so pan = rect.X / sy - nodePos.X
     /// (check: 614.55 / 0.675 - 1251.28 = -340.84, the pan read at rest).
-    private static float PanCorrectionX(GameController gc, float liveRectX, float nodePosX)
+    /// The pan comes from the pan container's own rect, read every frame: rect(WorldMap[0]).X = WorldMap.X + pan.X * sy.
+    /// It used to be derived from the node's rect minus the node's Position captured at the last scan; on the Desert
+    /// Map a node's Position changes while dragging, so the correction drifted (20-40 px in mid-drag screenshots) and
+    /// snapped back at every 2 s rescan (the user: "re-aligns every ~3 seconds").
+    private static float PanCorrectionX(GameController gc)
     {
+        var wm = gc.IngameState.IngameUi.WorldMap;
+        if (wm.ChildCount == 0) return 0;
         var win = gc.Window.GetWindowRectangle();
         float sx = win.Width / 2560f, sy = win.Height / 1600f;
-        var pan = liveRectX / sy - nodePosX;
+        var pan = (wm.GetChildAtIndex(0).GetClientRect().X - wm.GetClientRect().X) / sy;
         return pan * (sx - sy);
     }
 
