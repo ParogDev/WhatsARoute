@@ -15,6 +15,21 @@ public static class GameKeys
 {
     public const string ConfigName = "poe2_production_Config.ini";
 
+    private static string? _config;
+    private static bool _searched;
+
+    /// <summary>
+    /// The config path, found once per HUD run (the profile scan walks C:\Users, too much for every area change on
+    /// the game thread). Searched again only when the file it found has gone.
+    /// </summary>
+    public static string? Config()
+    {
+        if (_searched && (_config == null || File.Exists(_config))) return _config;
+        _config = FindConfig();
+        _searched = true;
+        return _config;
+    }
+
     /// <summary>The config the game writes: the HUD user's Documents first, else the newest one under C:\Users.</summary>
     public static string? FindConfig()
     {

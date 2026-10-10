@@ -127,7 +127,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         _goalEntity = null; _goalRender = null; _frame.HasGoalBox = false; _playerRender = null; _chosenStop = null; _stopShown = -1;
         _fresh.Reset();
         _resolver.ResetArea();
-        _portalKey = GameKeys.Binding(GameKeys.FindConfig(), "use_portal_scroll");   // re-read per area: the player may rebind
+        _portalKey = GameKeys.Binding(GameKeys.Config(), "use_portal_scroll");   // the binding is re-read per area (the player may rebind), the path found once
         _areaRaw = area?.Area?.RawName ?? "";
         _areaName = area?.Area?.Name ?? "";
         _resolver.Sightings.ResetArea(_areaRaw, area?.Hash ?? 0, DataDir);   // writes the old area's sightings first
