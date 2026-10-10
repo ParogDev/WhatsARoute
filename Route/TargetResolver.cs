@@ -149,9 +149,15 @@ public sealed class TargetResolver
                 if (r.Goals.Count > 0) break;
                 Entities(gc, r, e => IsTargetable(e) && e.Path?.EndsWith("/Objects/MapTable", StringComparison.Ordinal) == true);
                 if (r.Goals.Count > 0) { r.Label = $"Desert Map: travel to {name}"; r.ViaTravelMap = true; break; }
-                // No exit leads there and no Desert Map here: the way on starts in town (the caravan's Desert Map, or
-                // its waypoint), and a portal is the quickest way there. The route below still leads to a waypoint.
-                r.ViaPortal = gc.Area.CurrentArea is { IsTown: false, IsHideout: false };
+                // No exit leads there and no Desert Map here: the way on starts in town (the caravan's Desert Map). Out in
+                // the field a portal gets you there from anywhere, so no route is drawn (walking to a waypoint is the slow
+                // way the user did not want, 2026-10-10 Buried Shrines -> Mastodon Badlands): the card names the portal key.
+                if (gc.Area.CurrentArea is { IsTown: false, IsHideout: false })
+                {
+                    r.ViaPortal = true;
+                    r.Label = $"Travel to {name}";
+                    return;
+                }
                 Entities(gc, r, e => e.Type == EntityType.Waypoint || e.Path?.Contains("Checkpoint", StringComparison.OrdinalIgnoreCase) == true);
                 if (r.Goals.Count > 0) { r.Label = $"Waypoint: travel to {name}"; break; }
                 // Nothing loaded near you (a boss arena): a waypoint or checkpoint seen earlier this visit, else any exit.
