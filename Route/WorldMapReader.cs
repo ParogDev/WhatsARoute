@@ -134,7 +134,7 @@ public sealed class WorldMapReader
         if (gc.Memory.Read<long>(n.Address + AreaPtrOffset) != anchor.AreaRow) { Why = $"stop {anchor.Index}: node no longer points at its area row (map rebuilt), waiting for the next scan"; return false; }
         var r = n.GetClientRect();
         if (r.Width <= 0) return false;
-        var live = new Vector2(r.Center.X, r.Center.Y);
+        var live = new Vector2(r.Center.X + PanCorrectionX(gc), r.Center.Y);
         var scale = anchor.ScanSize > 0 ? r.Width / anchor.ScanSize : 1f;
         foreach (var s in Stops)
         {
@@ -143,6 +143,22 @@ public sealed class WorldMapReader
             s.Size = s.ScanSize * scale;
         }
         return true;
+    }
+
+    /// <summary>
+    /// The HUD scales element rects by one UI factor (screen height / 1600) on both axes, but the game pans this map
+    /// horizontally by screen width / 2560 (its 2560x1600 layout stretched to the screen). Node offsets inside the map
+    /// come out right; the pan (WorldMap[0].Position, layout units) does not, so markers drift sideways as the map is
+    /// dragged. Measured 2026-10-10 at 1920x1080: pan -340.8 -> HUD x 766.9, orb on screen ~740 (27 px = 340.8 x
+    /// 0.079 = 0.75 - 0.675); pan -2.9 -> ~0 px. Vertically both factors are equal, so no correction.
+    /// </summary>
+    private static float PanCorrectionX(GameController gc)
+    {
+        var wm = gc.IngameState.IngameUi.WorldMap;
+        if (wm.ChildCount == 0) return 0;
+        var pan = wm.GetChildAtIndex(0).Position.X;
+        var win = gc.Window.GetWindowRectangle();
+        return pan * (win.Width / 2560f - win.Height / 1600f);
     }
 
     private static string? FirstText(Element? e, int depth)
