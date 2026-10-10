@@ -210,6 +210,9 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         var corridor = Settings.World.EdgeCorridor.Value;
         var edgesNow = _edges;
         if (cell == _lastCell && field == _lastFieldUsed && edgeAhead == _lastEdgeAhead && corridor == _lastEdgeCorridor && edgesNow == _lastEdgesUsed) return;
+        // Tick moves to a new objective's field: the previous one is read by nothing else (the cut-off fallback keeps
+        // its own), so its 1 float/cell cost array goes back for the next build instead of to the GC.
+        if (field != _lastFieldUsed && _lastFieldUsed is { } old && old != _blockedField && old.Grid == grid) old.Recycle();
         _lastCell = cell; _lastFieldUsed = field; _lastEdgesUsed = edgesNow; _lastEdgeAhead = edgeAhead; _lastEdgeCorridor = corridor;
         Replan(grid, field, cell, edgeAhead, corridor);
     }

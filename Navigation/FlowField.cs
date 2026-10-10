@@ -45,7 +45,7 @@ public sealed class FlowField
     {
         why = null;
         var sw = Stopwatch.StartNew();
-        var cost = new float[g.W * g.H];
+        var cost = Rent(g.W * g.H);
         Array.Fill(cost, float.PositiveInfinity);
         var open = new PriorityQueue<int, float>(4096);
         var placed = new List<(int, int)>();
@@ -62,6 +62,7 @@ public sealed class FlowField
         {
             var (fx, fy) = goals.Count > 0 ? goals[0] : (0, 0);
             why = $"{goals.Count} goal(s), none within {GoalSnapCells} cells of walkable ground (first at {fx},{fy})";
+            Return(cost);
             return null;
         }
 
@@ -71,7 +72,7 @@ public sealed class FlowField
         {
             if (ci > cost[i]) continue;   // stale entry
             reached++;
-            if ((++pops & 0xFFFF) == 0 && ct.IsCancellationRequested) return null;
+            if ((++pops & 0xFFFF) == 0 && ct.IsCancellationRequested) { Return(cost); return null; }
             int x = i % g.W, y = i / g.W;
             for (var k = 0; k < 8; k++)
             {
@@ -88,6 +89,41 @@ public sealed class FlowField
             }
         }
         return new FlowField(g, cost, reached, sw.Elapsed.TotalMilliseconds, placed.ToArray());
+    }
+
+    // Cost arrays are one float per cell: 17.4 MB for G2_4_3 (3244x1403), a large-object-heap allocation per objective
+    // change (route-bench, 2026-10-10). A few are kept for reuse; the owner hands a field back with Recycle once nothing
+    // reads it any more.
+    private const int PoolSize = 2;
+    private static readonly List<float[]> Pool = new();
+
+    private static float[] Rent(int n)
+    {
+        lock (Pool)
+        {
+            for (var i = Pool.Count - 1; i >= 0; i--)
+                if (Pool[i].Length == n) { var a = Pool[i]; Pool.RemoveAt(i); return a; }
+            if (Pool.Count > 0 && Pool[0].Length != n) Pool.Clear();   // another area's size: let them go
+        }
+        return new float[n];
+    }
+
+    private static void Return(float[] a)
+    {
+        lock (Pool) { if (Pool.Count < PoolSize) Pool.Add(a); }
+    }
+
+    private bool _recycled;
+
+    /// <summary>
+    /// Gives this field's cost array back for the next build. Only when nothing reads the field any more: CostAt,
+    /// Snap and Descend on it afterwards read another objective's costs.
+    /// </summary>
+    public void Recycle()
+    {
+        if (_recycled) return;
+        _recycled = true;
+        Return(Cost);
     }
 
     public float CostAt(int x, int y) => Grid.InBounds(x, y) ? Cost[y * Grid.W + x] : float.PositiveInfinity;
