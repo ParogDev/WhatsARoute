@@ -148,8 +148,14 @@ public sealed class TargetResolver
                 Entities(gc, r, e => IsTargetable(e) && e.Path?.EndsWith("/Objects/MapTable", StringComparison.Ordinal) == true);
                 if (r.Goals.Count > 0) { r.Label = $"Desert Map: travel to {name}"; r.ViaTravelMap = true; break; }
                 Entities(gc, r, e => e.Type == EntityType.Waypoint || e.Path?.Contains("Checkpoint", StringComparison.OrdinalIgnoreCase) == true);
-                if (r.Goals.Count > 0) r.Label = $"Waypoint: travel to {name}";
-                else r.Why = $"no exit to {arg}, no Desert Map and no waypoint/checkpoint loaded near you";
+                if (r.Goals.Count > 0) { r.Label = $"Waypoint: travel to {name}"; break; }
+                // Nothing loaded near you (a boss arena): a waypoint or checkpoint seen earlier this visit, else any exit.
+                Remembered(r, s => s.Type == nameof(EntityType.Waypoint) || s.Path.Contains("Checkpoint", StringComparison.OrdinalIgnoreCase));
+                if (r.Goals.Count > 0) { r.Label = $"Waypoint: travel to {name} (seen earlier)"; break; }
+                Entities(gc, r, EntityType.AreaTransition, IsTargetable);
+                if (r.Goals.Count == 0) Remembered(r, s => s.Type == nameof(EntityType.AreaTransition) && s.Targetable);
+                if (r.Goals.Count > 0) r.Label = $"Exit, then travel to {name}";
+                else r.Why = $"no exit to {arg}, no Desert Map, and no waypoint, checkpoint or exit loaded or seen this visit";
                 break;
             }
             case "entity":
