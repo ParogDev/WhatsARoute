@@ -127,6 +127,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         _goalEntity = null; _goalRender = null; _frame.HasGoalBox = false; _playerRender = null; _chosenStop = null; _stopShown = -1;
         _fresh.Reset();
         _resolver.ResetArea();
+        _portalKey = GameKeys.Binding(GameKeys.FindConfig(), "use_portal_scroll");   // re-read per area: the player may rebind
         _areaRaw = area?.Area?.RawName ?? "";
         _areaName = area?.Area?.Name ?? "";
         _resolver.Sightings.ResetArea(_areaRaw, area?.Hash ?? 0, DataDir);   // writes the old area's sightings first
@@ -651,6 +652,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private readonly StatusPanel _status = new();
     private StatusPanel.Input _statusIn;
     private string _statusGoalLabel = "";     // the objective's own name, kept from before the route turned to an exit
+    private string? _portalKey;              // "Shift+T": the player's town portal binding, for the card
     private string? _statusDetail;
     private double _nextStatus;
 
@@ -711,6 +713,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 FromMemory = _resolved.FromMemory,
                 HasTravelTo = travel,
                 ViaTravelMap = _resolved.ViaTravelMap,
+                ViaPortal = _resolved.ViaPortal,
+                PortalKey = _portalKey,
                 TravelMapOpen = _map.Open,
                 StopChosen = _chosenStop != null,
                 PathLen = _pathLen,
