@@ -35,6 +35,7 @@ public sealed class WorldMapReader
         public float Size;            // live, px
         public Vector2 ScanCenter;    // as scanned
         public float ScanSize;
+        public float NodePosX;        // the node's position inside the map, layout units (fixed): to derive the pan
         public bool Unlocked;
         public string DestId = "", DestName = "";
     }
@@ -100,14 +101,14 @@ public sealed class WorldMapReader
             var r = n.GetClientRect();
             var c = new Vector2(r.Center.X, r.Center.Y);
             if (Mode == View.Travel && area.id == townAreaId)
-                Stops.Add(new Stop { Index = i, Node = n, AreaRow = row, Center = c, ScanCenter = c, Size = r.Width, ScanSize = r.Width, Unlocked = n.IsVisible });
+                Stops.Add(new Stop { Index = i, Node = n, AreaRow = row, Center = c, ScanCenter = c, Size = r.Width, ScanSize = r.Width, NodePosX = n.Position.X, Unlocked = n.IsVisible });
             else if (r.Width >= 80 && n.ChildCount == 0 && (Mode == View.Teleport || area.id != townAreaId))
             {
                 // An area's own node (content icons - bosses, chests - are nodes with an icon child): the destination
                 // marker, and in the Teleport view the waypoint orb you click.
                 _dests.Add((area.id, area.name, c));
                 if (Mode == View.Teleport)
-                    Stops.Add(new Stop { Index = i, Node = n, AreaRow = row, Center = c, ScanCenter = c, Size = r.Width, ScanSize = r.Width, Unlocked = n.IsVisible, DestId = area.id, DestName = area.name });
+                    Stops.Add(new Stop { Index = i, Node = n, AreaRow = row, Center = c, ScanCenter = c, Size = r.Width, ScanSize = r.Width, NodePosX = n.Position.X, Unlocked = n.IsVisible, DestId = area.id, DestName = area.name });
             }
         }
         if (matched == 0) { Why = $"no WorldMap[0][1][2] node (of {root.ChildCount}) has a WorldAreas row at +0x{AreaPtrOffset:X}: offset moved"; return; }
@@ -134,7 +135,7 @@ public sealed class WorldMapReader
         if (gc.Memory.Read<long>(n.Address + AreaPtrOffset) != anchor.AreaRow) { Why = $"stop {anchor.Index}: node no longer points at its area row (map rebuilt), waiting for the next scan"; return false; }
         var r = n.GetClientRect();
         if (r.Width <= 0) return false;
-        var live = new Vector2(r.Center.X + PanCorrectionX(gc), r.Center.Y);
+        var live = new Vector2(r.Center.X + PanCorrectionX(gc, r.X, anchor.NodePosX), r.Center.Y);
         var scale = anchor.ScanSize > 0 ? r.Width / anchor.ScanSize : 1f;
         foreach (var s in Stops)
         {
@@ -152,13 +153,16 @@ public sealed class WorldMapReader
     /// dragged. Measured 2026-10-10 at 1920x1080: pan -340.8 -> HUD x 766.9, orb on screen ~740 (27 px = 340.8 x
     /// 0.079 = 0.75 - 0.675); pan -2.9 -> ~0 px. Vertically both factors are equal, so no correction.
     /// </summary>
-    private static float PanCorrectionX(GameController gc)
+    /// The pan is derived from the node's LIVE rect, not read from WorldMap[0].Position: that property comes from the
+    /// element's cached memory and trailed a drag visibly (the user: "super laggy"). The HUD computes
+    /// rect.X = (pan + nodePos.X) * sy with nodePos fixed per node, so pan = rect.X / sy - nodePos.X
+    /// (check: 614.55 / 0.675 - 1251.28 = -340.84, the pan read at rest).
+    private static float PanCorrectionX(GameController gc, float liveRectX, float nodePosX)
     {
-        var wm = gc.IngameState.IngameUi.WorldMap;
-        if (wm.ChildCount == 0) return 0;
-        var pan = wm.GetChildAtIndex(0).Position.X;
         var win = gc.Window.GetWindowRectangle();
-        return pan * (win.Width / 2560f - win.Height / 1600f);
+        float sx = win.Width / 2560f, sy = win.Height / 1600f;
+        var pan = liveRectX / sy - nodePosX;
+        return pan * (sx - sy);
     }
 
     private static string? FirstText(Element? e, int depth)
