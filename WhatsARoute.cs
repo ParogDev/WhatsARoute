@@ -35,6 +35,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private readonly TargetResolver.Result _resolved = new();
     private readonly RouteRenderer _renderer = new();
     private readonly RouteFrame _frame = new();
+    private readonly FreshView _fresh = new();
+    private readonly Markers _markers = new();
     private readonly PathShaper _shaper = new();
     private readonly List<(int x, int y)> _cells = new(4096);
     private readonly List<(int x, int y)> _nearCells = new(NearCells);
@@ -61,10 +63,15 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private int _stepShift;                     // hotkey nudges in this area
     private readonly HashSet<int> _reachedSteps = new();
     private readonly Dictionary<string, int> _quests = new();   // open quest id -> state id
-    private double _nextQuests, _nextMap;
+    private double _nextQuests;
     private QuestObjective? _questObj;
     private readonly WorldMapReader _map = new();
     private WorldMapReader.Stop? _chosenStop;
+    private int _stopShown = -1;                // stop index the marker is on (snaps in again when it changes)
+    private double _stopAppearedAt, _goalAppearedAt;
+    private Render? _playerRender;              // cached in Tick; Render reads Pos from it (no GetComponent per frame)
+    private Entity? _goalEntity;                // the entity the route leads to, when the goal is a thing to click
+    private Render? _goalRender;
     private readonly Dictionary<string, bool> _flags = new();
     private double _nextFlags;
     private string? _why;
@@ -95,6 +102,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         _frame.Ready = false; _frame.Path.Clear(); _frame.MapPath.Clear(); _frame.MapPathZ.Clear(); _frame.EdgePieces.Clear();
         _lastCell = (int.MinValue, 0); _lastFieldUsed = null; _lastEdgesUsed = null;
         _stepShift = 0; _stepIndex = -1; _reachedSteps.Clear(); _nextResolve = 0; _nextFlags = 0;
+        _goalEntity = null; _goalRender = null; _frame.HasGoalBox = false; _playerRender = null; _chosenStop = null; _stopShown = -1;
+        _fresh.Reset();
         _resolver.ResetArea();
         _areaRaw = area?.Area?.RawName ?? "";
         _areaName = area?.Area?.Name ?? "";
@@ -133,11 +142,16 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         if (!GameController.InGame || GameController.Player == null) { _frame.Ready = false; return; }
         var t = _clock.Elapsed.TotalSeconds;
         if (t >= _nextQuests) { _nextQuests = t + 1; ReadQuests(); }
-        if (t >= _nextMap) { _nextMap = t + 0.25; ReadTravelMap(); }
+        ReadTravelMap(t);   // every tick: the open check is one cached read; the node scan inside is rate-limited
         var grid = _grid;
         if (grid == null) { _why = _areaWhy ?? "building the area grid"; _frame.Ready = false; return; }
-        var r = GameController.Player.GetComponent<Render>();
-        if (r == null) { _why = "Player has no Render component"; return; }
+        var r = _playerRender;
+        if (r == null || r.Address == 0 || GameController.Player.Address != r.OwnerAddress)
+        {
+            r = GameController.Player.GetComponent<Render>();
+            if (r == null) { _why = "Player has no Render component"; return; }
+            _playerRender = r;
+        }
         _frame.Player = r.Pos;
         _frame.PlayerUnclampedHeight = r.UnclampedHeight;
         var cell = ((int)(r.Pos.X / AreaGrid.GridToWorld), (int)(r.Pos.Y / AreaGrid.GridToWorld));
@@ -192,10 +206,30 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             edges.Query(_edgeQuery, corridor, _frame.EdgePieces, _edgeStamp, ++_edgeStampId);
         }
         _frame.Ready = true;
+        SetGoalEntity(_cells[^1]);
         _replanUs = Stopwatch.GetElapsedTime(t0).TotalMicroseconds;
 
         // A step without a quest flag counts as done once you stand on its goal.
         if (_stepIndex >= 0 && _cells.Count <= 4) _reachedSteps.Add(_stepIndex);
+    }
+
+    /// <summary>The goal entity nearest <paramref name="cell"/> (the path's end, else the player) gets the in-world marker.</summary>
+    private void SetGoalEntity((int x, int y) cell)
+    {
+        var list = _resolved.GoalEntities;
+        var best = -1; var bestD = int.MaxValue;
+        for (var i = 0; i < list.Count; i++)
+        {
+            var d = Math.Abs(list[i].X - cell.x) + Math.Abs(list[i].Y - cell.y);
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        if (best < 0) { _goalEntity = null; _goalRender = null; _frame.HasGoalBox = false; return; }
+        var g = list[best];
+        if (_goalEntity?.Address != g.Entity.Address) { _goalAppearedAt = _clock.Elapsed.TotalSeconds; _goalEntity = g.Entity; _goalRender = g.Render; }
+        _frame.HasGoalBox = true;
+        _frame.GoalPos = g.Pos;
+        _frame.GoalHalf = g.Bounds;
+        _frame.GoalAddress = g.Entity.Address;
     }
 
     private void ReadFlags()
@@ -233,9 +267,9 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         }
     }
 
-    private void ReadTravelMap()
+    private void ReadTravelMap(double now)
     {
-        try { _map.Read(GameController, _areaRaw); }
+        try { _map.Read(GameController, _areaRaw, now); }
         catch (Exception ex) { _map.Why = $"travel map: {ex.Message}"; }
         _chosenStop = null;
         if (!_map.Open || _resolved.TravelTo is not { } dest) return;
@@ -283,11 +317,13 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         {
             _why = _resolved.Why;
             if (_resolved.FromEntities && _field != null && _goalSig.StartsWith(spec + "|")) return;   // keep the last known goal
-            _field = null; _goalSig = ""; _frame.Ready = false;
+            _field = null; _goalSig = ""; _frame.Ready = false; _frame.HasGoalBox = false; _goalEntity = null; _goalRender = null;
             return;
         }
         var sig = spec + "|" + string.Join(";", _resolved.Goals.OrderBy(g => g.x).ThenBy(g => g.y).Select(g => $"{g.x},{g.y}"));
         if (sig == _goalSig) return;
+        // The marker goes on the goal entity nearest the player now; Replan moves it to the one the path ends at.
+        SetGoalEntity(cell);
         _goalSig = sig;
         _fieldCts.Cancel();
         _fieldCts = new CancellationTokenSource();
@@ -314,48 +350,88 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         if (Settings.Route.NextStep.PressedOnce()) { _stepShift++; _nextResolve = 0; }
         if (Settings.Route.PreviousStep.PressedOnce()) { _stepShift--; _nextResolve = 0; }
         if (!GameController.InGame) return;
-        if (_map.Open && _chosenStop is { } stop) DrawChosenStop(stop);
+        var time = _clock.Elapsed.TotalSeconds;
+        var core = Glow.Rgb(Settings.World.PathCore.Value);
+        var glow = Glow.Rgb(Settings.World.PathGlow.Value);
+        if (_map.Open && _chosenStop is { } stop) DrawTravelMap(stop, core, glow, time);
+        else _stopShown = -1;
         var ui = GameController.IngameState.IngameUi;
         if (ui.FullscreenPanels.Any(x => x.IsVisible) || ui.LargePanels.Any(x => x.IsVisible)) return;
         if (Settings.Debug.ShowStatus) DrawStatus();
-        if (!_frame.Ready) return;
-        var snap = GameController.IngameState.Camera.Snapshot;
+        var pr = _playerRender;
+        if (pr == null) return;
+
+        // The view at draw time: fresh camera and feet, as of DelayMs ago (FreshView), else the HUD's per-frame copy.
+        _fresh.Sample(GameController, pr, Settings.World.DelayMs.Value, Settings.World.FreshView.Value, out var m, out var half, out var player);
+        var disp = ImGui.GetIO().DisplaySize;
         var largeMap = ui.Map.LargeMap.AsObject<SubMap>();
         var open = largeMap.IsVisible;
-        _renderer.Draw(_frame, _edges, Settings, snap.Matrix, snap.HalfSize, open,
-            open ? largeMap.MapCenter : default, open ? largeMap.MapScale : 0, _clock.Elapsed.TotalSeconds);
+        if (_frame.Ready)
+            _renderer.Draw(_frame, _edges, Settings, m, half, player, open, open ? largeMap.MapCenter : default, open ? largeMap.MapScale : 0, time);
+
+        // The thing to click, around its live position (a transition can move: read Pos every frame from the cached component).
+        if (_frame.HasGoalBox && Settings.World.ShowGoalMarker.Value && !(open && Settings.World.HideWithLargeMap.Value) && _goalRender is { } gr)
+        {
+            if (_goalEntity is not { IsValid: true }) { _frame.HasGoalBox = false; return; }
+            // Render.Pos is the CENTRE of the model's box and Bounds.Z HALF its height (up is -Z): the player's Pos.Z +
+            // Bounds.Z equals the terrain height exactly; a caravan door's is ~23 units off its ground cell. The
+            // footprint goes on the ground the path uses at that cell (AreaGrid Z), falling back to Pos.Z + Bounds.Z,
+            // and the brackets rise by the full height (2 x Bounds.Z). Measured 2026-10-10 by the Valley exit: the
+            // marker drawn at Pos sat 110 px above the doorway floor.
+            var live = gr.Pos;
+            var g = _grid;
+            var ground = g != null && g.InBounds((int)(live.X / AreaGrid.GridToWorld), (int)(live.Y / AreaGrid.GridToWorld))
+                ? g.HeightAt(live.X / AreaGrid.GridToWorld, live.Y / AreaGrid.GridToWorld)
+                : live.Z + _frame.GoalHalf.Z;
+            _frame.GoalPos = new Vector3(live.X, live.Y, ground);
+            var dl = ImGui.GetBackgroundDrawList();
+            if ((dl.Flags & ImDrawListFlags.AntiAliasedLines) == 0) dl.Flags |= ImDrawListFlags.AntiAliasedLines;
+            _markers.DrawEntity(dl, m, half, disp, _frame.GoalPos, new Vector3(_frame.GoalHalf.X, _frame.GoalHalf.Y, _frame.GoalHalf.Z * 2f), _frame.Label, core, glow, time, _goalAppearedAt);
+        }
     }
 
-    /// <summary>Placeholder look (design pass pending): rings around the stop to pick on the open travel map.</summary>
-    private void DrawChosenStop(WorldMapReader.Stop stop)
+    /// <summary>
+    /// The Desert Map: the marker glued to the stop's live rect (one GetClientRect per frame; the 4 Hz scan only
+    /// identifies the nodes) and a quiet ring on the other unlocked stops. Nothing is drawn while the node no longer
+    /// points at its area row (the map was rebuilt): the next scan picks it up again.
+    /// </summary>
+    private void DrawTravelMap(WorldMapReader.Stop stop, Vector3 core, Vector3 glow, double time)
     {
+        if (!Settings.Travel.MarkChosenStop.Value) return;
+        if (!_map.Refresh(GameController, stop)) return;
+        if (_stopShown != stop.Index) { _stopShown = stop.Index; _stopAppearedAt = time; }
         var dl = ImGui.GetForegroundDrawList();
-        var t = (float)_clock.Elapsed.TotalSeconds;
-        var r = stop.Size * 0.5f + 4f + 3f * MathF.Sin(t * 3f);
-        var gold = Glow.Col(new Vector3(1f, 0.85f, 0.45f), 0.95f);
-        dl.AddCircle(stop.Center, r + 4f, Glow.Col(Glow.Ink, 0.5f), 48, 5f);
-        dl.AddCircle(stop.Center, r, gold, 48, 2.5f);
-        var label = _resolved.Label;
-        var size = ImGui.CalcTextSize(label) + new Vector2(12f, 6f);
-        var pos = new Vector2(stop.Center.X - size.X * 0.5f, stop.Center.Y + stop.Size * 0.5f + 10f);
-        dl.AddRectFilled(pos, pos + size, Glow.Col(new Vector3(0.04f, 0.06f, 0.07f), 0.85f), size.Y * 0.5f);
-        dl.AddText(pos + new Vector2(6f, 3f), gold, label);
+        if ((dl.Flags & ImDrawListFlags.AntiAliasedLines) == 0) dl.Flags |= ImDrawListFlags.AntiAliasedLines;
+        var disp = ImGui.GetIO().DisplaySize;
+        if (Settings.Travel.MarkOtherStops.Value)
+            foreach (var s in _map.Stops)
+                if (s != stop && s.Unlocked) Markers.DrawGhostStop(dl, s.Center, s.Size, glow);
+        _markers.DrawStop(dl, stop.Center, stop.Size, disp, stop.DestName.Length > 0 ? stop.DestName : _resolved.Label, core, glow, time, _stopAppearedAt);
     }
 
+    private string _statusLine1 = "", _statusLine2 = "";
+    private double _nextStatus;
+
+    /// <summary>The debug status line: its strings are rebuilt 4x per second, not per frame (no per-frame garbage).</summary>
     private void DrawStatus()
     {
-        var steps = _book.StepsFor(_areaRaw);
-        var step = _stepIndex >= 0 ? $"step {_stepIndex + 1}/{steps.Count}: " : "";
-        var line1 = $"Route  {_areaName} ({_areaRaw})  {step}{(_resolved.Label is { Length: > 0 } l ? l : _targetSpec)}";
-        var line2 = _why != null
-            ? $"  ! {_why}"
-            : $"  {_pathLen:0} units  goals {_resolved.Goals.Count}  field {_field?.BuildMs:0}ms  replan {_replanUs:0}us  tick {_tickUs:0}us  render {_renderUs:0}us  edges {_frame.EdgePieces.Count}";
+        var now = _clock.Elapsed.TotalSeconds;
+        if (now >= _nextStatus)
+        {
+            _nextStatus = now + 0.25;
+            var steps = _book.StepsFor(_areaRaw);
+            var step = _stepIndex >= 0 ? $"step {_stepIndex + 1}/{steps.Count}: " : "";
+            _statusLine1 = $"Route  {_areaName} ({_areaRaw})  {step}{(_resolved.Label is { Length: > 0 } l ? l : _targetSpec)}";
+            _statusLine2 = _why != null
+                ? $"  ! {_why}"
+                : $"  {_pathLen:0} units  goals {_resolved.Goals.Count}  field {_field?.BuildMs:0}ms  replan {_replanUs:0}us  tick {_tickUs:0}us  render {_renderUs:0}us  edges {_frame.EdgePieces.Count}  view {(_fresh.Fresh ? "fresh" : _fresh.Status)}{(_map.Open ? $"  map scan {_map.LastScanMs:0.0}ms" : "")}";
+        }
         var dl = ImGui.GetBackgroundDrawList();
         var p = new Vector2(Settings.Debug.StatusX.Value, Settings.Debug.StatusY.Value);
-        var size = Vector2.Max(ImGui.CalcTextSize(line1), ImGui.CalcTextSize(line2));
+        var size = Vector2.Max(ImGui.CalcTextSize(_statusLine1), ImGui.CalcTextSize(_statusLine2));
         dl.AddRectFilled(p - new Vector2(6, 4), p + new Vector2(size.X + 6, size.Y * 2 + 6), 0xB0101418, 4f);
-        dl.AddText(p, 0xFFD8F0FF, line1);
-        dl.AddText(p + new Vector2(0, size.Y + 2), _why != null ? 0xFF7AB4FFu : 0xFFB0B8C0u, line2);
+        dl.AddText(p, 0xFFD8F0FF, _statusLine1);
+        dl.AddText(p + new Vector2(0, size.Y + 2), _why != null ? 0xFF7AB4FFu : 0xFFB0B8C0u, _statusLine2);
     }
 
     private string GetStateJson()
@@ -402,6 +478,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         dto.TravelTo = _resolved.TravelTo;
         dto.TravelMapOpen = _map.Open;
         if (_map.Why != null) dto.Notes.Add(_map.Why);
+        dto.Notes.Add("view: " + _fresh.Status);
         foreach (var s in _map.Stops)
             dto.TravelMapStops.Add(new TravelStopDto { Index = s.Index, DestId = s.DestId, DestName = s.DestName, Unlocked = s.Unlocked, Chosen = s == _chosenStop, X = (int)s.Center.X, Y = (int)s.Center.Y });
         if (_book.RouteError != null) dto.Notes.Add(_book.RouteError);

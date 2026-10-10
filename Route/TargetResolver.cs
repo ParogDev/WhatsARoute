@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using ExileCore2;
 using ExileCore2.PoEMemory.Components;
 using ExileCore2.PoEMemory.MemoryObjects;
@@ -28,9 +29,13 @@ public sealed class TargetResolver
 
     public void ResetArea() { _tiles = null; _areaKey = ""; }
 
+    /// <summary>A goal that is an entity: where it stands and how big it is, for the in-world marker.</summary>
+    public readonly record struct GoalEntity(int X, int Y, Entity Entity, Render Render, Vector3 Pos, Vector3 Bounds);
+
     public sealed class Result
     {
         public readonly List<(int x, int y)> Goals = new();
+        public readonly List<GoalEntity> GoalEntities = new();   // one per goal when the goals are entities (same order)
         public string Label = "";
         public string? Why;   // the broken link, when there are no goals
         public bool FromEntities;
@@ -41,6 +46,7 @@ public sealed class TargetResolver
     public void Resolve(GameController gc, RouteBook book, string spec, string areaRawName, Result r)
     {
         r.Goals.Clear();
+        r.GoalEntities.Clear();
         r.Why = null;
         r.FromEntities = false;
         r.TravelTo = null;
@@ -132,7 +138,10 @@ public sealed class TargetResolver
             if (!e.IsValid || !match(e)) continue;
             var rd = e.GetComponent<Render>();
             if (rd == null) continue;
-            r.Goals.Add(((int)(rd.Pos.X / AreaGrid.GridToWorld), (int)(rd.Pos.Y / AreaGrid.GridToWorld)));
+            var pos = rd.Pos;
+            var cell = ((int)(pos.X / AreaGrid.GridToWorld), (int)(pos.Y / AreaGrid.GridToWorld));
+            r.Goals.Add(cell);
+            r.GoalEntities.Add(new GoalEntity(cell.Item1, cell.Item2, e, rd, pos, rd.Bounds));
         }
     }
 

@@ -22,7 +22,8 @@ public sealed class RouteRenderer
     private float[] _along = new float[512], _alpha = new float[512];
     private string? _labelSrc, _labelText;
 
-    public void Draw(RouteFrame f, EdgeMap? edges, WhatsARouteSettings s, Matrix4x4 m, Vector2 half, bool largeMapOpen,
+    /// <param name="player">The player's position at draw time (fresh when FreshView has it): the path starts at the live feet.</param>
+    public void Draw(RouteFrame f, EdgeMap? edges, WhatsARouteSettings s, Matrix4x4 m, Vector2 half, Vector3 player, bool largeMapOpen,
         Vector2 mapCenter, float mapScale, double time)
     {
         if (!f.Ready) return;
@@ -30,23 +31,23 @@ public sealed class RouteRenderer
         if ((dl.Flags & ImDrawListFlags.AntiAliasedLines) == 0) dl.Flags |= ImDrawListFlags.AntiAliasedLines;
         var disp = ImGui.GetIO().DisplaySize;
         var world = !(largeMapOpen && s.World.HideWithLargeMap);
-        if (world && s.World.ShowEdges && edges != null) DrawEdges(dl, f, edges, s, m, half, disp);
-        if (world && s.World.ShowPath) DrawPath(dl, f, s, m, half, disp, time);
-        if (largeMapOpen && s.Map.ShowOnLargeMap) DrawMap(dl, f, s, mapCenter, mapScale);
+        if (world && s.World.ShowEdges && edges != null) DrawEdges(dl, f, edges, s, m, half, player, disp);
+        if (world && s.World.ShowPath) DrawPath(dl, f, s, m, half, player, disp, time);
+        if (largeMapOpen && s.Map.ShowOnLargeMap) DrawMap(dl, f, s, player, mapCenter, mapScale);
     }
 
     // ── Path ────────────────────────────────────────────────────────
 
-    private void DrawPath(ImDrawListPtr dl, RouteFrame f, WhatsARouteSettings s, Matrix4x4 m, Vector2 half, Vector2 disp, double time)
+    private void DrawPath(ImDrawListPtr dl, RouteFrame f, WhatsARouteSettings s, Matrix4x4 m, Vector2 half, Vector3 player, Vector2 disp, double time)
     {
         var w = f.Path;
         if (w.Count < 2) return;
         // Start at the player's live position: the closest point on the first few segments.
         var seg = 0; var best = float.MaxValue; var start = w[0];
-        var p2 = new Vector2(f.Player.X, f.Player.Y);
+        var p2 = new Vector2(player.X, player.Y);
         for (var i = 0; i < Math.Min(w.Count - 1, 12); i++)
         {
-            var c = Closest(w[i], w[i + 1], f.Player);
+            var c = Closest(w[i], w[i + 1], player);
             var d = Vector2.DistanceSquared(new Vector2(c.X, c.Y), p2);
             if (d < best) { best = d; seg = i; start = c; }
         }
@@ -76,7 +77,7 @@ public sealed class RouteRenderer
         Glow.StrokeChunks(dl, _pts, _alpha, n, st, 1f, disp, ref _buf);
         if (s.World.ShowComets) Comets(dl, n, acc, time, glow, disp);
 
-        if (f.Goal is { } g && acc < far)
+        if (f.Goal is { } g && acc < far && !f.HasGoalBox)   // an entity goal gets the marker instead (Markers.DrawEntity)
         {
             var c = Glow.Project(m, half, g);
             if (Glow.OnScreen(c, disp, 40f)) { EndMarker(dl, c, time, glow, core); Label(dl, f.Label, c, disp, glow); }
@@ -165,12 +166,12 @@ public sealed class RouteRenderer
 
     // ── Edges ───────────────────────────────────────────────────────
 
-    private void DrawEdges(ImDrawListPtr dl, RouteFrame f, EdgeMap edges, WhatsARouteSettings s, Matrix4x4 m, Vector2 half, Vector2 disp)
+    private void DrawEdges(ImDrawListPtr dl, RouteFrame f, EdgeMap edges, WhatsARouteSettings s, Matrix4x4 m, Vector2 half, Vector3 player, Vector2 disp)
     {
         var core = Glow.Rgb(s.World.EdgeCore.Value);
         var glow = Glow.Rgb(s.World.EdgeGlow.Value);
         var st = new Glow.Style(10f, 0.10f, 4.5f, 0.22f, 0.25f, 1.6f, 0.85f, glow, core, Vector3.Lerp(core, Vector3.One, 0.6f));
-        var p2 = new Vector2(f.Player.X, f.Player.Y);
+        var p2 = new Vector2(player.X, player.Y);
         foreach (var idx in f.EdgePieces)
         {
             if (idx >= edges.Pieces.Count) continue;
@@ -191,12 +192,12 @@ public sealed class RouteRenderer
 
     // ── Large map ───────────────────────────────────────────────────
 
-    private void DrawMap(ImDrawListPtr dl, RouteFrame f, WhatsARouteSettings s, Vector2 center, float scale)
+    private void DrawMap(ImDrawListPtr dl, RouteFrame f, WhatsARouteSettings s, Vector3 player, Vector2 center, float scale)
     {
         var g = f.MapPath;
         if (g.Count < 2 || scale <= 0) return;
         Glow.Ensure(ref _map, g.Count);
-        var pg = new Vector2(f.Player.X, f.Player.Y) / AreaGrid.GridToWorld;
+        var pg = new Vector2(player.X, player.Y) / AreaGrid.GridToWorld;
         var cos = MathF.Cos(38.7f * MathF.PI / 180f);
         var sin = MathF.Sin(38.7f * MathF.PI / 180f);
         var ph = -f.PlayerUnclampedHeight;

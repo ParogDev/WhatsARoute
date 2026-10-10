@@ -14,6 +14,7 @@ public sealed class WhatsARouteSettings : ISettings
     public RouteSettings Route { get; set; } = new();
     public WorldSettings World { get; set; } = new();
     public MapSettings Map { get; set; } = new();
+    public TravelSettings Travel { get; set; } = new();
     public DebugSettings Debug { get; set; } = new();
 }
 
@@ -75,6 +76,26 @@ public sealed class WorldSettings
 
     [Menu("Hide while the large map is open")]
     public ToggleNode HideWithLargeMap { get; set; } = new(false);
+
+    [Menu("Fresh camera at draw time", "Read the camera and your position from the game when drawing, not the HUD's per-frame copy, " +
+        "and draw them as of a few ms ago so the overlay lands on the game image")]
+    public ToggleNode FreshView { get; set; } = new(true);
+
+    [Menu("Draw delay (ms)", "How far behind the fresh state the overlay is drawn: the game image's own latency (5 measured at 200 fps)")]
+    public RangeNode<int> DelayMs { get; set; } = new(5, 0, 30);
+
+    [Menu("Mark the objective", "A gold marker around the thing to click (exit, Desert Map table, waypoint): footprint, brackets, name")]
+    public ToggleNode ShowGoalMarker { get; set; } = new(true);
+}
+
+[Submenu]
+public sealed class TravelSettings
+{
+    [Menu("Mark the stop to pick", "On the Desert Map: a gold marker around the caravan stop the route wants, with the destination's name")]
+    public ToggleNode MarkChosenStop { get; set; } = new(true);
+
+    [Menu("Ring the other stops", "A quiet ring on every other unlocked stop, so the marked one stands out as the one")]
+    public ToggleNode MarkOtherStops { get; set; } = new(true);
 }
 
 [Submenu]
