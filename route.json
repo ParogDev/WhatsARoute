@@ -58,7 +58,7 @@
       { "Target": "radar:Ignagduk, The Bog Witch (+30 Spirit)", "Label": "Ignagduk, the Bog Witch (+30 Spirit)" }
     ],
     "G3_8": [
-      { "Target": "radar:The Molten Vault", "Label": "The Molten Vault (Mektul, reforging bench)", "Optional": true },
+      { "Target": "radar:The Molten Vault", "Label": "The Molten Vault (Mektul, reforging bench)", "Optional": true, "DoneFlag": "G3_9VaalForgeMasterKilled", "Note": "Verified live 2026-10-11: QuestFlag G3_9VaalForgeMasterKilled is set once Mektul is dead; without it the step sent the player back after RaidTheTreasureVault was done" },
       { "Target": "radar:Apex of Filth", "Label": "Apex of Filth" }
     ],
     "G3_9": [
