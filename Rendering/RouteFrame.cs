@@ -13,6 +13,8 @@ public sealed class RouteFrame
     public float PathChangedAt;            // seconds (plugin clock) when the shape last changed by a lot
     public Vector3? Goal;                  // world, when the goal is within the near part
     public string Label = "";
+    /// <summary>The objective is something detected in the world (a quest item on the ground), not the plan: drawn distinctly.</summary>
+    public bool Detected;
     public readonly List<Vector2> MapPath = new(1024);    // whole route, grid units, every few cells
     public readonly List<float> MapPathZ = new(1024);
     public readonly List<int> EdgePieces = new(256);
