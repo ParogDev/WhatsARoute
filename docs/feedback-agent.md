@@ -12,8 +12,10 @@ small: read what the press needs, not the whole repo.
    door, boss-fight, boss-dead, quest-item-taken, route-reloaded) goes out the same way as `route` events.
 2. The F8 dispatcher (MCP server, `Dispatch/FeedbackDispatcher.cs`, on the shared HTTP server) claims the press exactly
    once, shows "Claude is on it" above the route card, writes your brief (`handlers\<seq>\brief.md`: the press, the state,
-   the trace since the previous press, the last answers) and starts you with `claude -p --worktree route-f8-<seq>` in the
-   main scaffolding checkout. One handler runs at a time; later presses wait.
+   the trace since the previous press, the last answers) and starts you in the main scaffolding checkout, in worktree
+   `route-f8-<seq>`: as a background session with Remote Control named "F8 #<seq>: <note> (<area>)", which the user sees
+   and can join in claude.ai/code and the Claude app (headless `claude -p` when that can't start). One handler runs at a
+   time; later presses wait.
 3. Your **final message** is shown above the card (~25 s). Make it one or two short plain sentences: what changed and what
    the player does now. For a fix that takes longer than a minute, say so first with MCP
    `feedback_reply seq=<seq> status=working text="..."` (it stays up until your answer).
@@ -54,6 +56,9 @@ MCP tools (server `exileapi`, shared HTTP server): `route_state` (the plugin liv
 - Never send game input. Never edit HUD config files while the HUD runs.
 - No restarts for a route fix: `reload_plugin` is enough. A plugin change that needs the bridge or the MCP server is not a
   handler's job: say so in your final message and stop.
+- Your turn ending is the end: the dispatcher reads your last message, shows it on the card and stops your session a
+  few minutes later. Never wait for input. A message that arrives in your session meanwhile is the user following up over
+  Remote Control: answer it like a press (they may be at their desk, not in game).
 - Leave nothing half-done in your worktree: merged and synced, or nothing changed. The dispatcher removes an empty
-  worktree when you exit.
+  worktree when your session ends.
 - End with the final message for the player. Nothing else is shown to them.
