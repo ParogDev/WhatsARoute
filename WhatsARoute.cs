@@ -111,12 +111,14 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         _book.Load(DataDir, LiveDir);
         Settings.Route.ReloadRoute.OnPressed = ReloadRoute;
         GameController.PluginBridge.SaveMethod("WhatsARoute.GetState", (Func<string>)GetStateJson);
+        _bridge.Refresh(GameController.PluginBridge, 0);   // the bridge may load later: Tick looks again every 2 s
         return true;
     }
 
     // ── The live loop: the agent edits route.live.json, the player answers with the feedback key ──
 
     private readonly FeedbackLog _feedback = new();
+    private readonly AiBridgeLink _bridge = new();
     private double _nextLiveCheck;
     private string? _toast;                      // the line above the card: the agent's reply, or "sent"
     private double _toastUntil;
@@ -142,26 +144,61 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
 
     private void Toast(string text, double seconds) { _toast = text; _toastUntil = _clock.Elapsed.TotalSeconds + seconds; }
 
-    private void Trace(string evt, string? note = null, List<string>? quests = null) =>
-        _feedback.Write(new FeedbackDto
+    /// <summary>A trace line: feedback.jsonl (the local log) and, through the AI Bridge, a "route" event on its timeline.</summary>
+    private void Trace(string evt, string? note = null, List<string>? quests = null)
+    {
+        var dto = new FeedbackDto
         {
             Kind = "trace", Event = evt, Note = note, Area = _areaRaw, AreaName = _areaName, Target = _targetSpec, Label = _resolved.Label,
             StepIndex = _stepIndex, PlayerGrid = _lastCell.x == int.MinValue ? null : [_lastCell.x, _lastCell.y], Quests = quests,
-        });
+        };
+        _feedback.Write(dto);
+        _bridge.Publish("route", dto);
+    }
 
+    /// <summary>
+    /// An F8 verdict: written to feedback.jsonl and published as a "feedback" event. The MCP's dispatcher claims it and
+    /// starts a fresh Claude Code session for it; its replies (feedback.reply) show above the card (HandleReplies).
+    /// </summary>
     private void SendFeedback(string verdict)
     {
         RouteStateDto? state = null;
         try { state = BuildState(); state.MapPath.Clear(); } catch { /* the verdict still goes out */ }
-        var seq = _feedback.Write(new FeedbackDto
+        var dto = new FeedbackDto
         {
             Kind = "feedback", Event = verdict, Note = _feedbackNote.Trim() is { Length: > 0 } n ? n : null, Area = _areaRaw, AreaName = _areaName,
             Target = _targetSpec, Label = _resolved.Label, StepIndex = _stepIndex,
             PlayerGrid = _lastCell.x == int.MinValue ? null : [_lastCell.x, _lastCell.y], State = state,
-        });
-        Toast(seq < 0 ? $"Could not write feedback: {_feedback.Why}" : verdict == "works" ? $"Thanks, noted as working (#{seq})" : $"Sent to Claude (#{seq}): a fix will show here", seq < 0 ? 12 : 6);
+        };
+        var fileSeq = _feedback.Write(dto);
+        var sent = _bridge.Publish("feedback", dto);
+        string text;
+        if (verdict == "works") text = sent != null || fileSeq >= 0 ? "Thanks, noted as working" : $"Could not record it: {_feedback.Why}";
+        else if (sent is { Ok: true })
+            text = sent.Subscribers.Count > 0
+                ? $"Sent to Claude (#{sent.Seq}): a fresh Claude session picks it up in a moment"
+                : $"Saved (#{sent.Seq}), but no Claude dispatcher is listening right now: it is handled once one runs (open any Claude Code session)";
+        else if (fileSeq >= 0) text = $"Saved to feedback.jsonl (#{fileSeq}) only: {_bridge.Why ?? "the AI Bridge did not take it"}. Nobody is told until the bridge is back";
+        else text = $"Could not send or save feedback: {_bridge.Why ?? "bridge refused"}; {_feedback.Why}";
+        Toast(text, verdict == "works" ? 4 : 12);
         _feedbackNote = "";
         _feedbackOpen = false;
+    }
+
+    /// <summary>Tick: the dispatcher's and the handler's replies, shown above the card ("Claude is on it" stays until the answer).</summary>
+    private void HandleReplies(double now)
+    {
+        _bridge.Refresh(GameController.PluginBridge, now);
+        foreach (var r in _bridge.TakeReplies())
+        {
+            var text = r.Text is { Length: > 0 } t ? t : r.Status;
+            switch (r.Status)
+            {
+                case "claimed" or "working" or "queued": Toast(text, 900); break;   // until the answer replaces it (15 min cap)
+                case "failed": Toast(text, 30); break;
+                default: Toast(text, 25); break;
+            }
+        }
     }
 
     /// <summary>The feedback panel under the card: one click per verdict, an optional note (typed while the HUD has focus).</summary>
@@ -269,8 +306,9 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
 
     private void TickBody()
     {
-        if (!GameController.InGame || GameController.Player == null) { _frame.Ready = false; return; }
         var t = _clock.Elapsed.TotalSeconds;
+        HandleReplies(t);   // before the in-game check: a reply may arrive on a loading screen
+        if (!GameController.InGame || GameController.Player == null) { _frame.Ready = false; return; }
         if (t >= _nextLiveCheck) { _nextLiveCheck = t + 0.5; if (_book.Changed()) ReloadRoute(); }   // the agent's live edits, in half a second
         if (t >= _nextQuests) { _nextQuests = t + 1; ReadQuests(); }
         ReadTravelMap(t);   // every tick: the open check is one cached read; the node scan inside is rate-limited
