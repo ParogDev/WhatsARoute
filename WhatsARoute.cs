@@ -171,34 +171,49 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             PlayerGrid = _lastCell.x == int.MinValue ? null : [_lastCell.x, _lastCell.y], State = state,
         };
         var fileSeq = _feedback.Write(dto);
-        var sent = _bridge.Publish("feedback", dto);
+        var works = verdict == "works";
+        var sent = _bridge.Publish("feedback", dto, keep: !works);   // kept and sent once the bridge is back
         string text;
-        if (verdict == "works") text = sent != null || fileSeq >= 0 ? "Thanks, noted as working" : $"Could not record it: {_feedback.Why}";
+        if (works) text = sent is { Ok: true } || fileSeq >= 0 ? "Thanks, noted as working" : $"Could not record it: {_feedback.Why}";
         else if (sent is { Ok: true })
             text = sent.Subscribers.Count > 0
                 ? $"Sent to Claude (#{sent.Seq}): a fresh Claude session picks it up in a moment"
                 : $"Saved (#{sent.Seq}), but no Claude dispatcher is listening right now: it is handled once one runs (open any Claude Code session)";
-        else if (fileSeq >= 0) text = $"Saved to feedback.jsonl (#{fileSeq}) only: {_bridge.Why ?? "the AI Bridge did not take it"}. Nobody is told until the bridge is back";
-        else text = $"Could not send or save feedback: {_bridge.Why ?? "bridge refused"}; {_feedback.Why}";
-        Toast(text, verdict == "works" ? 4 : 12);
+        else text = $"Kept for Claude: {_bridge.Why ?? "the AI Bridge did not take it"}. It goes out as soon as the bridge is back"
+                    + (fileSeq < 0 ? $" (feedback.jsonl failed too: {_feedback.Why})" : "");
+        Toast(text, works ? 4 : 12);
         _feedbackNote = "";
         _feedbackOpen = false;
     }
 
-    /// <summary>Tick: the dispatcher's and the handler's replies, shown above the card ("Claude is on it" stays until the answer).</summary>
+    private readonly SortedDictionary<long, (string text, double since)> _replyPending = new();   // press -> its "on it" line, until its answer (45 min at most)
+    private readonly HashSet<long> _replyDone = new();
+
+    /// <summary>
+    /// Tick: the dispatcher's and the handler's replies, per press. An answer shows ~25 s; a press still being worked on
+    /// keeps its "Claude is on it" line above the card until its own answer; a late "on it" for an answered press is ignored.
+    /// </summary>
     private void HandleReplies(double now)
     {
         _bridge.Refresh(GameController.PluginBridge, now);
+        foreach (var seq in _bridge.Flushed) Toast($"Sent to Claude (#{seq}) now that the AI Bridge is back", 8);
         foreach (var r in _bridge.TakeReplies())
         {
             var text = r.Text is { Length: > 0 } t ? t : r.Status;
-            switch (r.Status)
+            if (r.Final)
             {
-                case "claimed" or "working" or "queued": Toast(text, 900); break;   // until the answer replaces it (15 min cap)
-                case "failed": Toast(text, 30); break;
-                default: Toast(text, 25); break;
+                _replyDone.Add(r.Ref);
+                _replyPending.Remove(r.Ref);
+                Toast(text, r.Status == "failed" ? 30 : 25);
+            }
+            else if (!_replyDone.Contains(r.Ref))
+            {
+                _replyPending[r.Ref] = (text, now);
+                Toast(text, 900);   // until the answer replaces it (15 min cap)
             }
         }
+        foreach (var old in _replyPending.Where(kv => now - kv.Value.since > 2700).Select(kv => kv.Key).ToList()) _replyPending.Remove(old);
+        if (_replyPending.Count > 0 && now >= _toastUntil) Toast(_replyPending[_replyPending.Keys.Max()].text, 900);
     }
 
     /// <summary>The feedback panel under the card: one click per verdict, an optional note (typed while the HUD has focus).</summary>
