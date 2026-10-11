@@ -37,9 +37,12 @@ public static class Glow
             new(OuterW * width, OuterA, MidW * width, MidA, InkA, CoreW * width, CoreA, GlowCol, CoreCol, NearCol, FarW * width, FarA);
     }
 
-    public static void StrokeChunks(ImDrawListPtr dl, Vector2[] pts, float[] alpha, int count, in Style st, float mul, Vector2 disp, ref Vector2[] buf)
+    /// <param name="mul">Scales the per-point alpha before it is quantised into chunks (a static dimming).</param>
+    /// <param name="post">Scales each chunk's alpha after quantisation: for anything continuous (a breath, a nearness
+    /// ramp), which as <paramref name="mul"/> would step through the 12 levels and pop whole chunks.</param>
+    public static void StrokeChunks(ImDrawListPtr dl, Vector2[] pts, float[] alpha, int count, in Style st, float mul, Vector2 disp, ref Vector2[] buf, float post = 1f)
     {
-        if (count < 2 || mul < 0.012f) return;
+        if (count < 2 || mul * post < 0.012f) return;
         Ensure(ref buf, count);
         var i = 0;
         while (i < count - 1)
@@ -51,7 +54,7 @@ public static class Glow
             var j = i;
             do { buf[n++] = pts[j + 1]; j++; }
             while (j < count - 1 && Level(alpha[j], alpha[j + 1], mul) == lvl && Visible(pts[j], pts[j + 1], disp));
-            Layers(dl, buf, n, lvl / (float)Levels, st);
+            Layers(dl, buf, n, lvl / (float)Levels * post, st);
             i = j;
         }
     }

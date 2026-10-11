@@ -24,12 +24,14 @@ public sealed class RouteRenderer
     private const float EdgeFull = 450f, EdgeFade = 450f;   // edges: full within, then fade over (world units)
     private const float PulseSpeed = 240f, PulseSpacing = 180f, PulseTail = 70f;
     // Detected (a quest item found on the ground): shorter, denser, quicker comets, a trickle running to the thing
-    // found; 110 apart keeps them under MaxPulses at the default 2200 draw distance.
+    // found.
     private const float DetSpeed = 320f, DetSpacing = 110f, DetTail = 44f;
     private const double DetBreathSec = 1.6;                  // the detected ribbon breathes: a beacon, not a road
     private const float ApproachWorld = 300f;                 // the last stretch of the path that lights up near the goal
     private const float EdgeQuietNear = 150f, EdgeQuietFade = 250f;   // edges within this of the goal step back (near 1)
-    private const int MaxPulses = 28;
+    // The comet loop stops at the ribbon's end anyway; this cap only bounds the draw calls (5 per comet) when the
+    // draw distance is set long: 40 covers 4400 units of a detected route, 7200 of a planned one.
+    private const int MaxPulses = 40;
     private const float RingR = 8f;
 
     private Vector2[] _pts = new Vector2[512], _buf = new Vector2[512], _buf2 = new Vector2[512], _map = new Vector2[1024];
@@ -39,8 +41,10 @@ public sealed class RouteRenderer
     /// <param name="player">The player's position at draw time (fresh when FreshView has it): the path starts at the live feet.</param>
     /// <param name="goal">The point the route leads to (the marker's pad, or the tile goal); null when unknown.</param>
     /// <param name="near">0 far from the goal .. 1 on the doorstep: the approach emphasis (see DrawPath, Comets, DrawEdges).</param>
+    /// <param name="core">The frame's path colours, resolved once by the caller (Glow.Theme: the settings' theme, or its
+    /// detected sibling), so the ribbon, the goal marker and the large-map line agree.</param>
     public void Draw(RouteFrame f, EdgeMap? edges, WhatsARouteSettings s, Matrix4x4 m, Vector2 half, Vector3 player, Vector3? goal, float near,
-        bool largeMapOpen, Vector2 mapCenter, float mapScale, double time)
+        Vector3 core, Vector3 glow, bool largeMapOpen, Vector2 mapCenter, float mapScale, double time)
     {
         if (!f.Ready) return;
         var dl = ImGui.GetBackgroundDrawList();
@@ -48,7 +52,7 @@ public sealed class RouteRenderer
         var disp = ImGui.GetIO().DisplaySize;
         var world = !(largeMapOpen && s.World.HideWithLargeMap);
         if (world && s.World.ShowEdges && edges != null) DrawEdges(dl, f, edges, s, m, half, player, goal, near, disp);
-        if (world && s.World.ShowPath) DrawPath(dl, f, s, m, half, player, near, disp, time);
+        if (world && s.World.ShowPath) DrawPath(dl, f, s, m, half, player, near, core, glow, disp, time);
         if (largeMapOpen && s.Map.ShowOnLargeMap) DrawMap(dl, f, s, player, mapCenter, mapScale);
     }
 
@@ -59,7 +63,8 @@ public sealed class RouteRenderer
     /// widens a little, its last ~300 units get a brighter, wider glow that runs into the pad, and the comets speed
     /// up and bunch together so they visibly pour into it. The eye is led to the spot to click, not to every wall.
     /// </summary>
-    private void DrawPath(ImDrawListPtr dl, RouteFrame f, WhatsARouteSettings s, Matrix4x4 m, Vector2 half, Vector3 player, float near, Vector2 disp, double time)
+    private void DrawPath(ImDrawListPtr dl, RouteFrame f, WhatsARouteSettings s, Matrix4x4 m, Vector2 half, Vector3 player, float near, Vector3 core, Vector3 glow,
+        Vector2 disp, double time)
     {
         var w = f.Path;
         if (w.Count < 2) return;
@@ -95,14 +100,15 @@ public sealed class RouteRenderer
             _alpha[i] = fadeIn * fadeIn * (1f - Glow.Smooth((_along[i] - (far - fadeOut)) / fadeOut));
         }
 
-        Glow.Theme(s.World, f.Detected, out var core, out var glow);
         var pw = s.World.PathWidth.Value;
         // Softer than before: a 30 px far halo at 4.5% under the 16 px outer one, the ink rim and the mid halo lighter,
         // the core thinner and not fully opaque, so the profile falls off in four steps instead of a hard bright core
         // with a dark edge (2026-10-11, the user: "the glow needs to be softer and round").
         var st = new Glow.Style(16f, 0.10f, 7f, 0.20f, 0.22f, 2.2f, 0.80f, glow, core, core, 30f, 0.045f).Scaled(pw * (1f + 0.3f * near));
+        // The breath and the nearness below go in after quantisation (post): as mul they would step through the 12
+        // alpha levels and pop whole chunks instead of ramping.
         var breath = f.Detected ? 0.84f + 0.16f * MathF.Sin((float)(time * Math.PI * 2 / DetBreathSec)) : 1f;
-        Glow.StrokeChunks(dl, _pts, _alpha, n, st, breath, disp, ref _buf);
+        Glow.StrokeChunks(dl, _pts, _alpha, n, st, 1f, disp, ref _buf, breath);
         if (near > 0.02f && acc < far)
         {
             // The last stretch into the goal: a wider warm glow and a hot core, growing with nearness. It ramps in
@@ -115,7 +121,7 @@ public sealed class RouteRenderer
                 for (var i = 0; i < tail; i++) _bufA[i] *= Glow.Smooth((_bufS[i] - s0) / (ApproachWorld * 0.5f));
                 var hot = Vector3.Lerp(core, Vector3.One, 0.5f);
                 var ts = new Glow.Style(22f * pw, 0.22f, 0f, 0f, 0f, 3.2f * pw, 0.55f, glow, hot, hot);
-                Glow.StrokeChunks(dl, _buf, _bufA, tail, ts, near, disp, ref _buf2);
+                Glow.StrokeChunks(dl, _buf, _bufA, tail, ts, 1f, disp, ref _buf2, near);
             }
         }
         if (s.World.ShowComets) Comets(dl, n, acc, time, glow, disp, near, f.Detected);
@@ -131,7 +137,7 @@ public sealed class RouteRenderer
     /// Each comet is a round head (a soft halo disc and a bright dot: round whichever way the path bends) with a tail
     /// that tapers behind it in three pieces, thinner and fainter toward the back, so it never ends square. The
     /// planned route gets long calm comets; a detected objective short quick ones, twice as dense. Five draw calls
-    /// per comet, as before.
+    /// per comet (four before: the head's glow stroke became a disc).
     /// </summary>
     private void Comets(ImDrawListPtr dl, int count, float end, double time, Vector3 glow, Vector2 disp, float near, bool detected)
     {
@@ -164,11 +170,16 @@ public sealed class RouteRenderer
         }
     }
 
+    /// <summary>The ribbon's alpha at the first point at or past <paramref name="s"/> along it (_along is ascending: a binary search).</summary>
     private float AlphaAt(float s, int count)
     {
-        for (var i = 1; i < count; i++)
-            if (_along[i] >= s) return _alpha[i];
-        return _alpha[count - 1];
+        int lo = 1, hi = count - 1;
+        while (lo < hi)
+        {
+            var mid = (lo + hi) >> 1;
+            if (_along[mid] >= s) hi = mid; else lo = mid + 1;
+        }
+        return _alpha[lo];
     }
 
     /// <summary>

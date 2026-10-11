@@ -218,7 +218,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         _frame.Ready = false; _frame.Path.Clear(); _frame.MapPath.Clear(); _frame.MapPathZ.Clear(); _frame.EdgePieces.Clear();
         _lastCell = (int.MinValue, 0); _lastFieldUsed = null; _lastEdgesUsed = null;
         _stepShift = 0; _stepIndex = -1; _reachedSteps.Clear(); _nextResolve = 0; _nextFlags = 0;
-        _goalEntity = null; _goalRender = null; _frame.HasGoalBox = false; _playerRender = null; _chosenStop = null; _stopShown = -1;
+        _goalEntity = null; _goalRender = null; _frame.HasGoalBox = false; _frame.Detected = false; _playerRender = null; _chosenStop = null; _stopShown = -1;
         _doors.Clear(); _doorAhead = null; _doorRender = null; _questItems.Clear();
         _fresh.Reset();
         _resolver.ResetArea();
@@ -895,8 +895,10 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         var glow = Glow.Rgb(Settings.World.PathGlow.Value);
         if (_map.Open && _chosenStop is { } stop) DrawTravelMap(stop, core, glow, time);
         else _stopShown = -1;
-        // A detected objective (a quest item on the ground) gets the theme's green sibling, ribbon and marker alike.
-        if (_frame.Detected) Glow.Theme(Settings.World, true, out core, out glow);
+        // The frame's colours, resolved once: a detected objective (a quest item on the ground) gets the theme's green
+        // sibling for the ribbon, the large-map line and its own marker. The travel map above and the door marker
+        // below keep the plain theme: they are the planned road, not the found thing.
+        Glow.Theme(Settings.World, _frame.Detected, out var fCore, out var fGlow);
         if (BigPanelOpen()) return;
         var avoidUi = Settings.World.AvoidGameUi.Value;
         if (avoidUi)
@@ -949,7 +951,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         var bg = ImGui.GetBackgroundDrawList();
         if (avoidUi) _mask.Begin(bg);
         if (_frame.Ready)
-            _renderer.Draw(_frame, _edges, Settings, m, half, player, goal, near, open, open ? largeMap.MapCenter : default, open ? largeMap.MapScale : 0, time);
+            _renderer.Draw(_frame, _edges, Settings, m, half, player, goal, near, fCore, fGlow, open, open ? largeMap.MapCenter : default, open ? largeMap.MapScale : 0, time);
         if (_doorAhead is { IsValid: true, IsTargetable: true } door && _doorRender is { } dr && Settings.World.ShowGoalMarker.Value)
         {
             var dl = ImGui.GetBackgroundDrawList();
@@ -964,7 +966,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             var dl = ImGui.GetBackgroundDrawList();
             if ((dl.Flags & ImDrawListFlags.AntiAliasedLines) == 0) dl.Flags |= ImDrawListFlags.AntiAliasedLines;
             _markers.DrawEntity(dl, m, half, disp, _frame.GoalPos, modelless ? 40f : MathF.Max(_frame.GoalHalf.X, _frame.GoalHalf.Y) * 0.8f,
-                modelless ? 0f : _frame.GoalHalf.Z * 2f, _frame.Label, core, glow, time, _goalAppearedAt, near);
+                modelless ? 0f : _frame.GoalHalf.Z * 2f, _frame.Label, fCore, fGlow, time, _goalAppearedAt, near);
         }
         if (avoidUi) _mask.End(bg);
     }
