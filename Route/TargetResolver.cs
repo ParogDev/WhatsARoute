@@ -38,6 +38,30 @@ public sealed class TargetResolver
     /// <summary>The plugin's clock, for the sightings' write debounce.</summary>
     public double Now;
 
+    /// <summary>WorldAreas id to display name ("G3_3" -> "Jungle Ruins"), cached; the id itself when unknown.</summary>
+    private string AreaName(GameController gc, string id)
+    {
+        if (!_areaNames.TryGetValue(id, out var name))
+            _areaNames[id] = name = gc.Files.WorldAreas.EntriesList.FirstOrDefault(a => string.Equals(a.Id, id, StringComparison.OrdinalIgnoreCase))?.Name ?? id;
+        return name;
+    }
+
+    /// <summary>
+    /// The exit to <paramref name="destName"/> from Radar's places in this area (named after the destination, "The"
+    /// optional), resolved into <paramref name="r"/>. For exits not loaded yet: the layout knows their tile on entry.
+    /// </summary>
+    private bool ExitFromRadar(GameController gc, RouteBook book, string areaRawName, string destName, Result r)
+    {
+        static string Bare(string s) => s.StartsWith("The ", StringComparison.OrdinalIgnoreCase) ? s[4..] : s;
+        var want = Bare(destName);
+        var place = book.RadarTargetsFor(areaRawName).FirstOrDefault(t => t.DisplayName is { } d && string.Equals(Bare(d), want, StringComparison.OrdinalIgnoreCase));
+        if (place?.DisplayName == null) return false;
+        Resolve(gc, book, "radar:" + place.DisplayName, areaRawName, r);
+        if (r.Goals.Count > 0) return true;
+        r.Why = null;   // the caller's later fallbacks (Desert Map, portal) speak for themselves
+        return false;
+    }
+
     public void ResetArea() { _tiles = null; _tileIndex = null; _areaKey = ""; _tileMatches.Clear(); }
 
     /// <summary>The terrain tile under a grid cell (tiles are known for the whole area on entry), or null off the map.</summary>
@@ -118,7 +142,10 @@ public sealed class TargetResolver
                 Entities(gc, r, EntityType.Waypoint, _ => true);
                 break;
             case "transition":
-                r.Label = arg.Length > 0 ? arg : "Exit";
+            {
+                // An area id ("G3_3") reads as its name on the card: "Exit to Jungle Ruins".
+                var areaName = arg.Length > 0 ? AreaName(gc, arg) : "";
+                r.Label = arg.Length == 0 ? "Exit" : areaName != arg ? $"Exit to {areaName}" : arg;
                 // Only exits you can use now: the Act 2 caravan keeps one exit per destination at its doors, all
                 // untargetable while it travels; locked doors are untargetable too. Matches the name or area id.
                 Entities(gc, r, EntityType.AreaTransition, e => IsTargetable(e) &&
@@ -128,18 +155,21 @@ public sealed class TargetResolver
                 {
                     // No open exit: a travel table (the caravan's Desert Map) is the way on.
                     Entities(gc, r, e => IsTargetable(e) && e.Path?.EndsWith("/Objects/MapTable", StringComparison.Ordinal) == true);
-                    if (r.Goals.Count > 0) r.Label = arg.Length > 0 ? $"Desert Map: travel to {arg}" : "Desert Map: choose where to go";
+                    if (r.Goals.Count > 0) r.Label = arg.Length > 0 ? $"Desert Map: travel to {areaName}" : "Desert Map: choose where to go";
                 }
                 // Seen earlier in this visit but unloaded now (you walked away): its place is still good.
                 if (r.Goals.Count == 0)
                     Remembered(r, s => s.Type == nameof(EntityType.AreaTransition) && s.Targetable &&
                                        (arg.Length == 0 || s.Name?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true || string.Equals(s.DestArea, arg, StringComparison.OrdinalIgnoreCase)));
+                // Not loaded and not seen yet (just arrived): Radar's place of that name in this area's layout.
+                if (r.Goals.Count == 0 && arg.Length > 0 && ExitFromRadar(gc, book, areaRawName, areaName, r)) r.Label = $"Exit to {areaName}";
                 break;
+            }
             case "travel":
             {
-                // Another area: an open exit that leads there, else the caravan's Desert Map, else a waypoint/checkpoint.
-                if (!_areaNames.TryGetValue(arg, out var name))
-                    _areaNames[arg] = name = gc.Files.WorldAreas.EntriesList.FirstOrDefault(a => string.Equals(a.Id, arg, StringComparison.OrdinalIgnoreCase))?.Name ?? arg;
+                // Another area: an open exit that leads there, else Radar's place for that exit (not loaded yet), else
+                // the caravan's Desert Map, else a waypoint/checkpoint.
+                var name = AreaName(gc, arg);
                 r.TravelTo = arg;
                 r.Label = $"Exit to {name}";
                 Entities(gc, r, EntityType.AreaTransition, e => IsTargetable(e) &&
@@ -147,6 +177,9 @@ public sealed class TargetResolver
                 if (r.Goals.Count > 0) break;
                 Remembered(r, s => s.Type == nameof(EntityType.AreaTransition) && s.Targetable && string.Equals(s.DestArea, arg, StringComparison.OrdinalIgnoreCase));
                 if (r.Goals.Count > 0) break;
+                // 2026-10-11 Jungle Ruins -> Venom Crypts: the exit had not loaded on arrival, and the card said "open a
+                // portal" with no waypoint unlocked. Radar knows the exit's tile from the layout.
+                if (ExitFromRadar(gc, book, areaRawName, name, r)) { r.TravelTo = arg; r.Label = $"Exit to {name}"; break; }
                 Entities(gc, r, e => IsTargetable(e) && e.Path?.EndsWith("/Objects/MapTable", StringComparison.Ordinal) == true);
                 if (r.Goals.Count > 0) { r.Label = $"Desert Map: travel to {name}"; r.ViaTravelMap = true; break; }
                 // No exit leads there and no Desert Map here: the way on starts in town (the caravan's Desert Map). Out in
