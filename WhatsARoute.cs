@@ -69,6 +69,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private double _nextQuests;
     private QuestObjective? _questObj;
     private readonly WorldMapReader _map = new();
+    private readonly WaypointMemory _waypoints = new();
+    private readonly CaravanState _caravan = new();
     private WorldMapReader.Stop? _chosenStop;
     private int _stopShown = -1;                // stop index the marker is on (snaps in again when it changes)
     private double _stopAppearedAt, _goalAppearedAt;
@@ -109,6 +111,10 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         Name = "Whats A Route";
         _feedback.Open(LiveDir);
         _book.Load(DataDir, LiveDir);
+        _resolver.CaravanStops = _map.CaravanStops;
+        _resolver.Waypoints = _waypoints;
+        _caravan.Load(LiveDir);
+        _resolver.Caravan = _caravan;
         Settings.Route.ReloadRoute.OnPressed = ReloadRoute;
         GameController.PluginBridge.SaveMethod("WhatsARoute.GetState", (Func<string>)GetStateJson);
         return true;
@@ -222,12 +228,14 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         _doors.Clear(); _doorAhead = null; _doorRender = null;
         _fresh.Reset();
         _resolver.ResetArea();
+        _caravan.ResetArea();
         _portalKey = GameKeys.Binding(GameKeys.Config(), "use_portal_scroll");   // the binding is re-read per area (the player may rebind), the path found once
         _areaRaw = area?.Area?.RawName ?? "";
         _areaName = area?.Area?.Name ?? "";
         _lastObjective = "";
         Trace("area");
         _resolver.Sightings.ResetArea(_areaRaw, area?.Hash ?? 0, DataDir);   // writes the old area's sightings first
+        UseCharacter();
 
         var data = GameController.IngameState.Data;
         int[][]? pf; float[][]? height;
@@ -286,7 +294,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         var cell = ((int)(r.Pos.X / AreaGrid.GridToWorld), (int)(r.Pos.Y / AreaGrid.GridToWorld));
         var now = _clock.Elapsed.TotalSeconds;
 
-        if (now >= _nextFlags) { _nextFlags = now + 2; ReadFlags(); }
+        if (now >= _nextFlags) { _nextFlags = now + 2; ReadFlags(); if (!_waypoints.HasCharacter) UseCharacter(); }
         if (now >= _nextResolve)
         {
             _nextResolve = now + 0.5;
@@ -298,6 +306,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             // and written to sightings.json, so a goal that unloads keeps its place and a new layout can be mapped.
             _resolver.Sightings.Scan(GameController, _areaRaw, GameController.Area.CurrentArea?.Hash ?? 0, DataDir, c => _resolver.TileAt(GameController, _areaRaw, c), now);
             _scanUs = _scanUs * 0.8 + 0.2 * Stopwatch.GetElapsedTime(st).TotalMicroseconds;
+            _caravan.Update(GameController, _areaRaw);   // in the caravan only: its trip decides whether there is anything to walk to
             ResolveObjective(grid, cell);
             _resolver.Sightings.FlushIfIdle(DataDir, now);
             ScanDoors();
@@ -495,10 +504,17 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
 
     private readonly HashSet<string> _altAreas = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The waypoint memory follows the character (on area change, and before learning from the map).</summary>
+    private void UseCharacter()
+    {
+        if (GameController.Player?.GetComponent<Player>()?.PlayerName is { Length: > 0 } who) _waypoints.Use(LiveDir, who);
+    }
+
     private void ReadTravelMap(double now)
     {
         try { _map.Read(GameController, _areaRaw, now); }
         catch (Exception ex) { _map.Why = $"travel map: {ex.Message}"; }
+        if (_map.JustScanned && _map.Mode == WorldMapReader.View.Teleport) { UseCharacter(); _waypoints.Learn(_map.Stops); }
         _chosenStop = null;
         if (!_map.Open || _resolved.TravelTo is not { } dest) return;
         foreach (var s in _map.Stops)
@@ -936,6 +952,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 HasTravelTo = travel,
                 ViaTravelMap = _resolved.ViaTravelMap,
                 ViaPortal = _resolved.ViaPortal,
+                TravelVia = _resolved.Via,
+                Heading = _resolved.HeadingName,
                 PortalKey = _portalKey,
                 DoorAhead = _doorAhead is { IsValid: true, IsTargetable: true },
                 TravelHub =_areaRaw.StartsWith("G2_", StringComparison.OrdinalIgnoreCase) ? "the Desert Map" : "the waypoint",
@@ -1002,6 +1020,14 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         dto.ActiveQuests = _quests.Select(kv => $"{kv.Key}:{kv.Value}").ToList();
         dto.QuestObjective = _questObj == null ? null : $"{_questObj.Quest} -> {_questObj.Area} ({_questObj.Label})";
         dto.TravelTo = _resolved.TravelTo;
+        dto.TravelVia = _resolved.Via;
+        dto.Heading = _resolved.Heading;
+        dto.HeadingName = _resolved.HeadingName;
+        if (_caravan.Location >= 0) dto.HeadingSignal = _caravan.Signal;
+        if (_caravan.Why != null) dto.Notes.Add(_caravan.Why);
+        dto.CaravanStops = _map.CaravanStops.OrderBy(s => s, StringComparer.OrdinalIgnoreCase).ToList();
+        dto.WaypointsKnown = _waypoints.Count;
+        if (_waypoints.Why != null) dto.Notes.Add(_waypoints.Why);
         dto.TravelMapOpen = _map.Open;
         if (_map.Open) dto.Notes.Add($"map view: {_map.Mode} ('{_map.Title}')");
         if (_map.Why != null) dto.Notes.Add(_map.Why);

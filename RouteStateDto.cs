@@ -29,6 +29,17 @@ public sealed class RouteStateDto
     public List<string> ActiveQuests { get; set; } = new();
     public string? QuestObjective { get; set; }
     public string? TravelTo { get; set; }
+    /// <summary>What to take here for TravelTo: "the Desert Map", "the waypoint", both, or null (an exit).</summary>
+    public string? TravelVia { get; set; }
+    /// <summary>Act 2: the area id the caravan is travelling to (no route until it stops and its gates open).</summary>
+    public string? Heading { get; set; }
+    public string? HeadingName { get; set; }
+    /// <summary>How <see cref="Heading"/> was read (the signal's values), for checking it against the game.</summary>
+    public string? HeadingSignal { get; set; }
+    /// <summary>Destinations of the caravan stops seen on the Desert Map this HUD run.</summary>
+    public List<string> CaravanStops { get; set; } = new();
+    /// <summary>Waypoints this character has unlocked, as learnt from the Teleport view.</summary>
+    public int WaypointsKnown { get; set; }
     public bool TravelMapOpen { get; set; }
     public List<TravelStopDto> TravelMapStops { get; set; } = new();
     /// <summary>The .tdt under the player (what a step's PlayerOn matches against).</summary>

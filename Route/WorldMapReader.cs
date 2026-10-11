@@ -54,6 +54,10 @@ public sealed class WorldMapReader
     public bool Open;
     public string? Why;           // the broken link when the map is open but could not be read
     public double LastScanMs;
+    /// <summary>True for the one Read that scanned (the stops were just identified): learn from them then, not every tick.</summary>
+    public bool JustScanned;
+    /// <summary>Destinations of the unlocked caravan stops, from every Travel-view scan this HUD run.</summary>
+    public readonly HashSet<string> CaravanStops = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<long, (string id, string name)> _areaRows = new();
     private readonly List<(string id, string name, Vector2 c)> _dests = new();
     private double _nextScan;
@@ -63,6 +67,7 @@ public sealed class WorldMapReader
     public void Read(GameController gc, string townAreaId, double now)
     {
         Why = null;
+        JustScanned = false;
         var wm = gc.IngameState.IngameUi.WorldMap;
         var open = wm is { IsVisible: true };
         if (!open) { Open = false; Stops.Clear(); _nextScan = 0; _wmAddress = 0; return; }
@@ -73,6 +78,7 @@ public sealed class WorldMapReader
         var sw = System.Diagnostics.Stopwatch.StartNew();
         Scan(gc, wm, townAreaId);
         LastScanMs = sw.Elapsed.TotalMilliseconds;
+        JustScanned = true;
     }
 
     private void Scan(GameController gc, Element wm, string townAreaId)
@@ -121,6 +127,7 @@ public sealed class WorldMapReader
                 var dist = Vector2.Distance(d.c, s.Center);
                 if (dist < best) { best = dist; s.DestId = d.id; s.DestName = d.name; }
             }
+            if (s.Unlocked && s.DestId.Length > 0) CaravanStops.Add(s.DestId);
         }
     }
 
