@@ -46,17 +46,20 @@ MCP tools (server `exileapi`, shared HTTP server): `route_state` (the plugin liv
   shows above the card), reloaded within 0.5 s. Another agent may edit it too: read it right before you write and change
   only your own entries. Write it with a shell heredoc or the Write tool (it is outside git).
 - **Then into route.json by PR.** Never edit, commit or switch branches in `<main>` itself (a hook denies it), and never
-  make a worktree under `Plugins\Whats A Route` (the HUD compiles it: duplicate types). All from your worktree:
-  1. `git submodule update --init -- "Plugins/Whats A Route"`, then in that folder `git switch -c <topic> origin/main`,
-     edit, commit (message ends with the Co-Authored-By line you were given).
+  make a worktree under `Plugins\Whats A Route` (the HUD compiles it: duplicate types). Run every command below from
+  your worktree's root (use `git -C "Plugins/Whats A Route" ...` for the plugin, don't `cd` into it):
+  1. `git submodule update --init -- "Plugins/Whats A Route"`, then `git -C "Plugins/Whats A Route" switch -c <topic>
+     origin/main`, edit, commit (message ends with the Co-Authored-By line you were given).
   2. Review: the Skill `code-review` on the plugin checkout; fix what holds up, commit; then
      `powershell -NoProfile -ExecutionPolicy Bypass -File tools/mark-reviewed.ps1 -Path "Plugins/Whats A Route"`
      (forward slashes: your shell is Git Bash; a hook blocks `gh pr create` until that HEAD is marked).
-  3. Push, `gh pr create` (body ends with the generated-with line you were given), then merge only with
-     `bash tools/merge-on-green.sh <pr> --repo ParogDev/WhatsARoute --timeout 500` as a plain foreground command (never
-     piped, never in the background, never `gh pr merge`). Exit 4 is a timeout: run it again. Your session is stopped as
-     soon as your turn ends, so anything left running in the background is cut.
-  4. Pointer bump: in the plugin folder `git checkout origin/main` (after `git fetch`), then in your worktree
+  3. `git -C "Plugins/Whats A Route" push -u origin <topic>`, `gh pr create --repo ParogDev/WhatsARoute --head <topic>
+     --base main` (body ends with the generated-with line you were given), then merge only with
+     `bash tools/merge-on-green.sh <pr> --repo ParogDev/WhatsARoute --timeout 500` as a plain foreground command with the
+     Bash tool's timeout at 600000 ms (never piped, never in the background, never `gh pr merge`). Exit 4 is a timeout:
+     run it again. Your session is stopped as soon as your turn ends, so anything left in the background is cut.
+  4. Pointer bump: in the plugin `git fetch`, `git checkout origin/main`, `git branch -D <topic>` (merged; a local branch
+     left behind counts as unpushed work and keeps your worktree), then in your worktree
      `git switch -c bump-route-<seq> origin/main`, `git add "Plugins/Whats A Route"`, commit "Bump Whats A Route (#<pr>):
      ...", push, `gh pr create`, `bash tools/merge-on-green.sh <pr> --timeout 500` (pointer-only PRs need no review).
 - **Then sync the HUD:** `git -C "<main>" pull --ff-only`, `git -C "<main>" submodule update -- "Plugins/Whats A Route"`,
