@@ -76,8 +76,8 @@ public sealed class UiMask
         h.Add(ui.Map?.LargeMap?.IsVisibleLocal ?? false);
         h.Add(ui.Map?.SmallMiniMap?.IsVisibleLocal ?? false);
         h.Add(ui.QuestTracker?.IsVisibleLocal ?? false);
-        h.Add(ui.OpenLeftPanel?.Address ?? 0);    // the side panel shown (stash, inventory...), or none
-        h.Add(ui.OpenRightPanel?.Address ?? 0);
+        h.Add(ui.OpenLeftPanel is { } lp && lp.IsVisibleLocal ? lp.Address : 0);    // the side panel shown (stash, inventory...), or none
+        h.Add(ui.OpenRightPanel is { } rp && rp.IsVisibleLocal ? rp.Address : 0);
         foreach (var w in _wrappers)
         {
             h.Add(w.ChildCount);
