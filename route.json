@@ -45,8 +45,8 @@
       { "Target": "radar:Jiquani's Sanctum", "Label": "Keep exploring: the next Soul Core shows when it loads" }
     ],
     "G3_6_2": [
-      { "Target": "entity:3_6_2/Objects/MachinariumGeneratorButton", "State": "activate=0", "SkipIfNone": true, "Label": "Power the next reactor (Medium Soul Core)", "Note": "Verified live 2026-10-11: each reactor's switch is MachinariumGeneratorButton ('Generator', IngameIcon), activate=0 and targetable until powered (one at ~(1506,1138), the other ~(402,1138)). Medium Soul Cores on the ground come first through the quest-item rule. Radar's 'Generator' row named only one of them" },
-      { "Target": "radar:Boss", "Label": "Zicoatl, Warden of the Core" }
+      { "Target": "entity:3_6_2/Objects/MachinariumGeneratorButton", "State": "activate=0", "SkipIfNone": true, "Label": "Click the reactor to insert the Medium Soul Core", "Note": "Verified live 2026-10-11: each reactor's switch is MachinariumGeneratorButton ('Generator', IngameIcon), activate=0 and targetable until powered (one at ~(1506,1138), the other ~(402,1138)). Medium Soul Cores on the ground come first through the quest-item rule. Radar's 'Generator' row named only one of them" },
+      { "Target": "radar:Boss", "UntilDead": "VaalBossStatue/VaalStatueBoss", "Label": "Zicoatl, Warden of the Core", "Note": "Verified live 2026-10-11: Radar's Boss row is the arena's wall tiles (BossWall01.tdt), fine for getting there; the route hides during the fight (unique boss near) and the step ends when Zicoatl (Metadata/Monsters/VaalBossStatue/VaalStatueBoss, dead copies loaded beside him) is dead. Quest 37 = defeat Zicoatl for the Large Soul Core, 38 = the Large Soul Core near Alva is retrievable" }
     ],
     "G3_2_2": [
       { "Target": "radar:Waterways Lever", "Label": "Pull the Waterways Lever" }
