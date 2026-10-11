@@ -31,6 +31,9 @@ public sealed class RouteSettings
     [Menu("Include optional steps", "Off: optional rewards (passives, gems, resistances) are skipped for speed")]
     public ToggleNode IncludeOptional { get; set; } = new(false);
 
+    [Menu("Pick up quest items", "A quest item on the ground near you (a boss drop, a found item) becomes the objective until you pick it up")]
+    public ToggleNode PickUpQuestItems { get; set; } = new(true);
+
     [Menu("Next step", "Skip to the next route step in this area (your key, none by default)")]
     public HotkeyNodeV2 NextStep { get; set; } = new(Keys.None);
 
