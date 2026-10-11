@@ -128,24 +128,67 @@ public sealed class FlowField
 
     public float CostAt(int x, int y) => Grid.InBounds(x, y) ? Cost[y * Grid.W + x] : float.PositiveInfinity;
 
+    private const int SnapRadius = 12;
+
     /// <summary>
-    /// <paramref name="start"/>, or the nearest cell the field reached within 12 cells (the player can stand on a
-    /// blocked cell for a moment); null when the start is on another island than every goal.
+    /// <paramref name="start"/>, or a reached cell near it; null when the start is on another island than every goal.
+    /// The field floods with the no-corner-cutting moves below, so a walkable cell it did not reach IS on another
+    /// island: a ledge or a room past a wall or chasm. Snapping that to any reached cell within 12 cells (the old ring
+    /// search) drew a route across the gap the player could not walk (review note, 2026-10-10). A player on blocked
+    /// ground for a moment belongs to the nearest walkable cell. Only a speck of under 40 cells counts as the ground
+    /// around it: grid noise the player brushes past (route-bench: Act 2's unreached cells near the field are mostly on
+    /// 1-30 cell specks; the rest are 53+ cell ledges and whole regions).
     /// </summary>
     public (int x, int y)? Snap((int x, int y) start)
     {
         if (!float.IsPositiveInfinity(CostAt(start.x, start.y))) return start;
-        for (var r = 1; r <= 12; r++)
+        if (Grid.NearestWalkable(start.x, start.y, SnapRadius) is not { } from) return null;
+        if (!float.IsPositiveInfinity(CostAt(from.x, from.y))) return from;
+        return IslandSize(from) < SpeckCells ? NearestReached(start) : null;
+    }
+
+    private const int SpeckCells = 40;
+
+    /// <summary>Cells of the walkable island holding <paramref name="from"/> (the field's own moves), counted up to <see cref="SpeckCells"/>.</summary>
+    private int IslandSize((int x, int y) from)
+    {
+        var g = Grid;
+        Span<int> cells = stackalloc int[SpeckCells];
+        var n = 0;
+        cells[n++] = from.y * g.W + from.x;
+        for (var head = 0; head < n; head++)
+        {
+            int x = cells[head] % g.W, y = cells[head] / g.W;
+            for (var k = 0; k < 8; k++)
+            {
+                int nx = x + Dx[k], ny = y + Dy[k];
+                if (!g.Walkable(nx, ny)) continue;
+                if (k >= 4 && (!g.Walkable(x + Dx[k], y) || !g.Walkable(x, y + Dy[k]))) continue;
+                var i = ny * g.W + nx;
+                if (cells[..n].Contains(i)) continue;
+                cells[n++] = i;
+                if (n == SpeckCells) return n;
+            }
+        }
+        return n;
+    }
+
+    private (int x, int y)? NearestReached((int x, int y) start)
+    {
+        for (var r = 1; r <= SnapRadius; r++)
         for (var dy = -r; dy <= r; dy++)
         for (var dx = -r; dx <= r; dx++)
+        {
+            if (Math.Abs(dx) != r && Math.Abs(dy) != r) continue;
             if (!float.IsPositiveInfinity(CostAt(start.x + dx, start.y + dy))) return (start.x + dx, start.y + dy);
+        }
         return null;
     }
 
     /// <summary>
     /// Cells from <paramref name="start"/> down the cost gradient to a goal, into <paramref name="cells"/> (cleared
-    /// first, reused). A start off the field (blocked cell, other island) snaps to the nearest reached cell. Returns
-    /// false with the reason when there is no way down.
+    /// first, reused). A start off the field snaps as <see cref="Snap"/> says (blocked ground or a speck: a nearby reached
+    /// cell; another island: no way down). Returns false with the reason when there is no way down.
     /// </summary>
     public bool Descend((int x, int y) start, List<(int x, int y)> cells, int maxCells, out string? why)
     {
