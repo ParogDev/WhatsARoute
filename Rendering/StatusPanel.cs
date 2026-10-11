@@ -181,19 +181,21 @@ public sealed class StatusPanel
                 : ("Reading the area's terrain", Tone.Busy);
         if (i.Blocked)
         {
-            if (i.PathReady) return ("Cut off from it here: leading you to the nearest exit", Tone.Warn);
-            if (i.Why is { } bw && bw.Contains("no exit seen", StringComparison.Ordinal)) return ("Cut off from it, and no exit found on this side yet", Tone.Warn);
-            return ("Cut off from it here: looking for a way out", Tone.Busy);
+            // The player's words, and always what to do next (2026-10-11, the user: "cut off from it, and no exit found
+            // on this side yet ... it's like developer talk. It feels like not advancing").
+            if (i.PathReady) return ("No way through here yet: take the marked exit", Tone.Info);
+            if (i.Why is { } bw && bw.Contains("no exit seen", StringComparison.Ordinal)) return ("The way there isn't open yet: keep exploring", Tone.Info);
+            return ("No way through here yet: looking for another way", Tone.Busy);
         }
         if (i.Why is { } w)
         {
-            if (Has(w, "loaded near you yet")) return ("Waiting for it to load", Tone.Busy);
+            if (Has(w, "loaded near you yet")) return ("Not in sight yet: keep moving, it shows up as you get closer", Tone.Info);
             if (Has(w, "building the area grid") || Has(w, "terrain not loaded")) return ("Reading the area's terrain", Tone.Busy);
-            if (Has(w, "no exit to ")) return ("No way to the next area found near you yet", Tone.Warn);
-            if (Has(w, "no tile matches") || Has(w, "targets.json has no") || Has(w, "Radar")) return ("Can't find it in this layout", Tone.Warn);
-            if (Has(w, "you are not on a") || Has(w, "after the step's filters")) return (i.Note is { Length: > 0 } n ? n : "Nothing to do for this step right now", Tone.Info);
-            if (Has(w, "cannot reach the goal")) return ("No way there from where you stand", Tone.Warn);
-            if (Has(w, "none within")) return ("It is off the walkable ground", Tone.Warn);
+            if (Has(w, "no exit to ")) return ("Exit not found yet: keep exploring", Tone.Info);
+            if (Has(w, "no tile matches") || Has(w, "targets.json has no") || Has(w, "Radar")) return ("Not on this layout's map: keep exploring", Tone.Warn);
+            if (Has(w, "you are not on a") || Has(w, "after the step's filters")) return (i.Note is { Length: > 0 } n ? n : "Nothing to do here for this step: keep going", Tone.Info);
+            if (Has(w, "cannot reach the goal")) return ("No path there from here yet: keep exploring", Tone.Info);
+            if (Has(w, "none within")) return ("Can't walk right up to it: get as close as you can", Tone.Info);
             if (Has(w, "descent stuck")) return ("The route got stuck here", Tone.Break);
             if (Has(w, "unknown target kind")) return ("route.json: unknown target kind", Tone.Break);
             if (Has(w, "QuestFlags")) return ("Could not read the quest flags", Tone.Break);
@@ -202,7 +204,7 @@ public sealed class StatusPanel
             if (w.StartsWith("render:", StringComparison.Ordinal)) return ("Something broke while drawing", Tone.Break);
             if (w.StartsWith("cost map:", StringComparison.Ordinal)) return ("Could not build the cost map", Tone.Break);
             if (Has(w, "Render component")) return ("Waiting for your character", Tone.Busy);
-            return ("No route right now", Tone.Warn);
+            return ("No route right now: keep exploring", Tone.Warn);
         }
         if (i.ViaPortal && !i.TravelMapOpen)
         {
@@ -217,7 +219,7 @@ public sealed class StatusPanel
         if (!i.FieldReady || !i.PathReady) return ("Finding the way", Tone.Busy);
         if (i.DoorAhead) return ("Open the door ahead", Tone.Info);
         if (i.PathCells <= 4) return ("", Tone.Normal);
-        if (i.FromMemory) return ("Seen earlier this visit: leading you back", Tone.Info);
+        if (i.FromMemory) return ("Seen earlier: leading you back to it", Tone.Info);
         return ("", Tone.Normal);
     }
 

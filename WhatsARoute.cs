@@ -708,7 +708,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 var portal = _resolved.ViaPortal;
                 _resolver.Resolve(GameController, _book, "transition:", _areaRaw, _resolved);
                 _resolved.ViaPortal = portal;   // a portal still beats walking out of the arena first
-                _resolved.Label = $"Way out ({target} is not reachable from here)";
+                _resolved.Label = $"Way out: {target} can't be reached from here";
                 if (_resolved.Goals.Count == 0) _resolved.Why = $"cut off from '{target}' and no exit seen on this part of the area";
                 spec = "exit-from:" + spec;
             }
