@@ -40,6 +40,13 @@ public sealed class RouteSettings
     [JsonIgnore]
     [Menu("Reload route.json")]
     public ButtonNode ReloadRoute { get; set; } = new();
+
+    [Menu("Feedback key", "Opens the feedback panel: tell the agent the route works, or what is wrong, with what the route sees right now")]
+    public HotkeyNodeV2 Feedback { get; set; } = new(Keys.F8);
+
+    [Menu("Live folder", "route.live.json (the agent's live edits, laid over route.json, reloaded when written) and feedback.jsonl. " +
+        "Empty: %LOCALAPPDATA%\\Hexile\\WhatsARoute")]
+    public TextNode LiveFolder { get; set; } = new("");
 }
 
 [Submenu]

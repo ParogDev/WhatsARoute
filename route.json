@@ -1,7 +1,9 @@
 {
-  "Name": "Act 2 (draft)",
-  "Source": "Order from the Maxroll PoE2 campaign guide (updated 2026-06-02). Places are Radar targets.json names. Unverified live: check each area as you play.",
+  "Name": "Acts 2-3 (draft)",
+  "Source": "Act 2: order from the Maxroll PoE2 campaign guide (updated 2026-06-02). Act 3: drafted 2026-10-11 from the known campaign order and Radar's G3 places, fixed live with the player through the feedback key. Places are Radar targets.json names.",
   "Quests": [
+    { "Quest": "CleanseTheSnakePit", "States": [9], "Area": "G3_4", "Target": "radar:Venom Vial (Pick Bonus)", "Label": "Venom Crypts: take the Venom Vial", "Via": { "G3_town": "transition:G3_3" }, "Note": "Verified live 2026-10-11: state 9 = 'Servi has told you about the Orok. Search for the source of their poison.' Jungle Ruins (G3_3) leads to the crypts" },
+    { "Quest": "SearchForTheVaalRepository", "States": [56], "Area": "G3_2_1|G3_5|G3_6_1|G3_6_2|G3_7", "Label": "Infested Barrens: on to the Chimeral Wetlands", "Via": { "G3_town": "transition:G3_3", "G3_4": "transition:G3_3" }, "Note": "Verified live 2026-10-11: state 56 = 'Find The Matlan Waterways'. The waterways stay flooded until Jiquani's Sanctum, so the Barrens steps go to the Chimeral Wetlands first" },
     { "Quest": "PryTheFlameRuby", "States": [6], "Area": "G2_6", "Label": "Light the Ancient Seals (3), then the Clasped Entry", "Note": "Verified live 2026-10-10: state 6 = 'Enter the Titan Grotto at the Clasped Entry' (the G2_6 steps handle the seals and the entry)" },
     { "Quest": "BurnTheWaterGoddess", "States": [3], "Area": "G2_4_3", "Target": "item:EssenceOfTheWaterGod", "Label": "Pick up the Essence of Water", "Note": "Verified live 2026-10-10: state 3 = 'Pick up the Essence of Water'; it drops by the goddess (~(2752,832)) as a WorldItem whose item is Metadata/Items/QuestItems/Gallows/Act2/EssenceOfTheWaterGod" },
     { "Quest": "BurnTheWaterGoddess", "States": [4], "Area": "G2_4_3", "Target": "entity:NPC/Four_Act2/WaterGoddessUnnamed|entity:QuestObjects/Four_Act2/WaterGoddess_BurnInteract", "Label": "Wait while the Water Goddess burns", "Note": "Unverified (2026-10-10, from the user): between using the cinders (5) and the essence (3) you wait for her to die; the route stays on her instead of the island fallback" },
@@ -12,6 +14,59 @@
     { "Quest": "BurnTheWaterGoddess", "States": [2], "Area": "G2_town", "Label": "Return to the Ardura Caravan", "Note": "Verified live 2026-10-10: state 2 = 'You have burned the Water Goddess alive at her request. Return to the Ardura Caravan.' (set when the Essence of Water is picked up)" }
   ],
   "Areas": {
+    "G3_3": [
+      { "Target": "radar:Mighty Silverfist (+2 Passive)", "Label": "Mighty Silverfist (+2 Passive)", "Optional": true },
+      { "Target": "radar:Infested Barrens", "Label": "Infested Barrens" }
+    ],
+    "G3_4": [
+      { "Target": "radar:Venom Vial (Pick Bonus)", "Label": "Take the Venom Vial" },
+      { "Target": "radar:Rare Sarcophagus + T3 Support Gem", "Label": "Rare Sarcophagus (T3 Support Gem)", "Optional": true },
+      { "Target": "radar:Jungle Ruins", "Label": "Back to the Jungle Ruins" }
+    ],
+    "G3_2_1": [
+      { "Target": "radar:Chimeral Wetlands", "Label": "Chimeral Wetlands" }
+    ],
+    "G3_5": [
+      { "Target": "radar:Deadly Nest", "Label": "Xyclucian, the Chimera (Deadly Nest)" },
+      { "Target": "transition:G3_6_1", "Label": "Jiquani's Machinarium" }
+    ],
+    "G3_6_1": [
+      { "Target": "radar:The Oubliette (10% Fire Res)", "Label": "The Oubliette (10% Fire Res)", "Optional": true },
+      { "Target": "radar:Jiquani's Sanctum", "Label": "Jiquani's Sanctum (Small Soul Cores open the door)" }
+    ],
+    "G3_6_2": [
+      { "Target": "radar:Generator", "Label": "Power the generators (Medium Soul Cores)" },
+      { "Target": "radar:Boss", "Label": "Zicoatl, Warden of the Core" }
+    ],
+    "G3_2_2": [
+      { "Target": "radar:Waterways Lever", "Label": "Pull the Waterways Lever" }
+    ],
+    "G3_7": [
+      { "Target": "radar:Ignagduk, The Bog Witch (+30 Spirit)", "Label": "Ignagduk, the Bog Witch (+30 Spirit)" }
+    ],
+    "G3_8": [
+      { "Target": "radar:The Molten Vault", "Label": "The Molten Vault (Mektul, reforging bench)", "Optional": true },
+      { "Target": "radar:Apex of Filth", "Label": "Apex of Filth" }
+    ],
+    "G3_9": [
+      { "Target": "radar:Mektul, The Forgemaster (Reforging Bench)", "Label": "Mektul, the Forgemaster" }
+    ],
+    "G3_11": [
+      { "Target": "radar:Queen of Filth", "Label": "The Queen of Filth" }
+    ],
+    "G3_12": [
+      { "Target": "radar:Stairs Up", "Label": "Up the Temple of Kopec: Ketzuli at the top" }
+    ],
+    "G3_14": [
+      { "Target": "radar:Aggorat", "Label": "Aggorat" }
+    ],
+    "G3_16": [
+      { "Target": "radar:Sacrificial Dagger (+2 Passive)", "Label": "Sacrificial Dagger (+2 Passive)", "Optional": true },
+      { "Target": "radar:The Black Chambers", "Label": "The Black Chambers" }
+    ],
+    "G3_17": [
+      { "Target": "radar:Arena", "Label": "Doryani, Royal Thaumaturge" }
+    ],
     "G2_10_1": [
       { "Target": "radar:Artificers Orb", "Label": "Faridun War Cache (Artificer's Orb)", "Optional": true },
       { "Target": "radar:Mawdun Mine", "Label": "Mawdun Mine" }
