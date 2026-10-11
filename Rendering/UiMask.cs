@@ -27,6 +27,7 @@ public sealed class UiMask
     private readonly List<Vector4> _occ = new(48), _free = new(64), _prev = new(48);
     private readonly List<Vector4> _scratch = new(48);
     private readonly List<Element> _wrappers = new(16);   // the tracker's full-width boxes, for the signature
+    private readonly List<Element> _poking = new(8);      // side-panel parts that reach outside the panel, for the signature
     private double _nextCheck, _nextFull, _nextEscape;
     private int _sig;
     private Vector2 _disp;
@@ -78,6 +79,7 @@ public sealed class UiMask
         h.Add(ui.QuestTracker?.IsVisibleLocal ?? false);
         h.Add(ui.OpenLeftPanel is { } lp && lp.IsVisibleLocal ? lp.Address : 0);    // the side panel shown (stash, inventory...), or none
         h.Add(ui.OpenRightPanel is { } rp && rp.IsVisibleLocal ? rp.Address : 0);
+        foreach (var e in _poking) h.Add(e.IsVisibleLocal);   // the stash tab list opened or closed
         foreach (var w in _wrappers)
         {
             h.Add(w.ChildCount);
@@ -107,6 +109,7 @@ public sealed class UiMask
     {
         _occ.Clear();
         _wrappers.Clear();
+        _poking.Clear();
         var ui = gc.IngameState.IngameUi;
         var screen = disp.X * disp.Y;
 
@@ -114,7 +117,13 @@ public sealed class UiMask
         // check never hid the route for them (2026-10-11, the user: "Drawing is visible through stash tab panels").
         // OpenLeftPanel / OpenRightPanel resolve to whichever one is shown.
         foreach (var side in new[] { ui.OpenLeftPanel, ui.OpenRightPanel })
-            if (side is { } s && s.IsVisible) Add(s.GetClientRect());
+            if (side is { } s && s.IsVisible)
+            {
+                var r = s.GetClientRect();
+                var frame = new Vector4(r.X, r.Y, r.X + r.Width, r.Y + r.Height);
+                Add(frame);
+                Poking(s, frame, disp.X, disp.Y, 0);
+            }
 
         if (ui.Map?.SmallMiniMap is { } mini && mini.IsVisible) Add(mini.GetClientRect());
         // The area info at the top right (area, monster level, league) while the large map is open.
@@ -206,6 +215,34 @@ public sealed class UiMask
             if (area < 9f) { Parts(c, maxArea, ref box, depth + 1); continue; }
             if (area >= maxArea) { Parts(c, maxArea, ref box, depth + 1); continue; }   // the cluster's art plate
             box = new Vector4(MathF.Min(box.X, r.X), MathF.Min(box.Y, r.Y), MathF.Max(box.Z, r.X + r.Width), MathF.Max(box.W, r.Y + r.Height));
+        }
+    }
+
+    /// <summary>
+    /// Parts of a side panel drawn outside its frame: the stash's tab list opens to the right of the stash, over the
+    /// world (2026-10-11, the user's screenshot: the route ran through it). The first element that reaches past the
+    /// frame is masked whole and not walked further; hidden ones are kept for the signature, so opening the list
+    /// rescans within <see cref="CheckEvery"/> seconds.
+    /// </summary>
+    private void Poking(Element e, Vector4 frame, float screenW, float screenH, int depth)
+    {
+        if (depth > 7) return;
+        var n = Math.Min(e.ChildCount, 60);
+        for (var i = 0; i < n; i++)
+        {
+            var c = e.Children[i];
+            if (c == null) continue;
+            var cr = c.GetClientRect();
+            // On screen only: the stash's tab strip scrolls thousands of pixels off its left edge (clipped by the game).
+            var r = new Vector4(Math.Max(cr.X, 0), Math.Max(cr.Y, 0), Math.Min(cr.X + cr.Width, screenW), Math.Min(cr.Y + cr.Height, screenH));
+            if (r.Z <= r.X || r.W <= r.Y) continue;
+            if (r.X < frame.X - Pad || r.Z > frame.Z + Pad)
+            {
+                _poking.Add(c);
+                if (c.IsVisibleLocal) Add(r);
+                continue;
+            }
+            if (c.IsVisibleLocal) Poking(c, frame, screenW, screenH, depth + 1);
         }
     }
 
