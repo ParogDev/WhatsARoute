@@ -29,6 +29,11 @@ public sealed class RouteStep
     public string? PlayerOn { get; set; }
     /// <summary>The step is done for the rest of the visit once this many distinct entities matching it were seen in that state (all three seal portals active).</summary>
     public DoneWhenSeenRule? DoneWhenSeen { get; set; }
+    /// <summary>
+    /// The step applies only while an item whose metadata path contains this is in your inventory ("VaalKeyGem": a Soul
+    /// Core to put in a Stone Altar). The quest state alone can't tell: it stays the same while you carry the next core.
+    /// </summary>
+    public string? Carrying { get; set; }
 }
 
 public sealed class DoneWhenSeenRule

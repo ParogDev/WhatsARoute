@@ -608,6 +608,31 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
 
     private readonly Dictionary<DoneWhenSeenRule, bool> _seenCache = new();
 
+    private readonly List<string> _carried = new();
+    private double _carriedAt = -1;
+
+    /// <summary>An item in your inventories whose metadata path contains <paramref name="part"/>; the paths are read at most once a second.</summary>
+    private bool Carrying(string part)
+    {
+        var now = _clock.Elapsed.TotalSeconds;
+        if (now - _carriedAt >= 1)
+        {
+            _carriedAt = now;
+            _carried.Clear();
+            try
+            {
+                foreach (var inv in GameController.IngameState.Data.ServerData.PlayerInventories)
+                    if (inv?.Inventory?.Items is { } items)
+                        foreach (var it in items)
+                            if (it?.Path is { } p) _carried.Add(p);
+            }
+            catch (Exception ex) { _why = $"ServerData.PlayerInventories: {ex.Message}"; }
+        }
+        foreach (var p in _carried)
+            if (p.Contains(part, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
     private const string QuestItemSpec = "item:/QuestItems/";
     private const int QuestItemCells = 150;
 
@@ -695,6 +720,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             {
                 var s = steps[i];
                 if (StepDone(i, s) || (!Settings.Route.IncludeOptional && s.Optional)) continue;
+                if (s.Carrying is { Length: > 0 } carry && !Carrying(carry)) continue;
                 if (s.SkipIfNone && _stepShift == 0)
                 {
                     _resolver.Resolve(GameController, _book, s.Target, _areaRaw, _resolved);
