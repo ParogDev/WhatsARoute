@@ -579,10 +579,31 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private bool StepDone(int i, RouteStep s)
     {
         if (_reachedSteps.Contains(i) || (s.DoneFlag != null && _flags.TryGetValue(s.DoneFlag, out var v) && v)) return true;
+        if (s.UntilDead is { Length: > 0 } boss && SeenDead(boss)) { _reachedSteps.Add(i); return true; }
         if (s.DoneWhenSeen is not { Entity.Length: > 0 } dw || !SeenEnough(dw)) return false;
         _reachedSteps.Add(i);
         return true;
     }
+
+    /// <summary>
+    /// A monster whose path contains <paramref name="part"/> loaded and dead (2026-10-11 Oubliette: after Blackjaw died the
+    /// step kept pointing at his body). Kills are remembered for the area visit, so the step stays done once you walk off.
+    /// </summary>
+    private bool SeenDead(string part)
+    {
+        var key = $"{GameController.Area.CurrentArea?.Hash ?? 0:x8}:{part}";   // per area instance: a new instance has the boss again
+        if (_deadSeen.Contains(key)) return true;
+        foreach (var e in GameController.EntityListWrapper.OnlyValidEntities)
+            if (e.Type == EntityType.Monster && !e.IsAlive && e.Path?.Contains(part, StringComparison.OrdinalIgnoreCase) == true)
+            {
+                _deadSeen.Add(key);
+                Trace("boss-dead", e.Path);
+                return true;
+            }
+        return false;
+    }
+
+    private readonly HashSet<string> _deadSeen = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Distinct entity paths matching <paramref name="dw"/> in its state, loaded now or remembered this visit. Loaded

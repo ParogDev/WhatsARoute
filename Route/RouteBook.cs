@@ -34,6 +34,8 @@ public sealed class RouteStep
     /// Core to put in a Stone Altar). The quest state alone can't tell: it stays the same while you carry the next core.
     /// </summary>
     public string? Carrying { get; set; }
+    /// <summary>The step is done once a monster whose path contains this is seen dead (a boss): lead to its room, not to it.</summary>
+    public string? UntilDead { get; set; }
 }
 
 public sealed class DoneWhenSeenRule

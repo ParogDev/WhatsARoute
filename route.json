@@ -41,7 +41,7 @@
     ],
     "G3_6_1": [
       { "Target": "click:3_6_1/Objects/KeyPedestal", "Carrying": "VaalKeyGem", "SkipIfNone": true, "Label": "Place the Soul Core in the Stone Altar", "Note": "Verified live 2026-10-11: cores are VaalKeyGem<n> in MainInventory once picked up; the quest stays at 43 while you carry the second one, so the inventory decides. Used altars turn untargetable (KeyPedestal_Entrance)" },
-      { "Target": "entity:Monsters/BlackJawSuperunique/BlackJaw|entity:Monsters/BlackJawSuperunique/objects/BossRoomMinimapIcon|radar:The Oubliette (10% Fire Res)", "Label": "The Oubliette: Blackjaw (10% Fire Res)", "Optional": true, "Note": "Verified live 2026-10-11: Radar's Oubliette row is the boss-room door tile; Blackjaw (BlackJaw@37) stands ~145 cells past it and drops The Flame Core (see Use)" },
+      { "Target": "entity:Monsters/BlackJawSuperunique/objects/BossRoomMinimapIcon|radar:The Oubliette (10% Fire Res)", "UntilDead": "BlackJawSuperunique/BlackJaw", "Label": "The Oubliette: Blackjaw (10% Fire Res)", "Optional": true, "Note": "Verified live 2026-10-11: Radar's Oubliette row is the boss-room door tile; Blackjaw (BlackJaw@37) stands ~145 cells past it (the room icon ~(2012,455)) and drops The Flame Core (see Use). The user: not the boss himself as the target (marker on him while fighting, then on his body)" },
       { "Target": "radar:Jiquani's Sanctum", "Label": "Keep exploring: the next Soul Core shows when it loads" }
     ],
     "G3_6_2": [
