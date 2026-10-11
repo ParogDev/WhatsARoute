@@ -246,7 +246,11 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     /// <summary>Quest states that changed since the last read, as "QuestId:StateId text", for the trace.</summary>
     private readonly Dictionary<string, int> _questsBefore = new();
 
-    public override void OnClose() => _resolver.Sightings.Flush(DataDir);
+    public override void OnClose()
+    {
+        _bridge.Close();
+        _resolver.Sightings.Flush(DataDir);
+    }
 
     public override void AreaChange(AreaInstance area)
     {

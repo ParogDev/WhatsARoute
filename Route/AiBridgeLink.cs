@@ -81,9 +81,17 @@ public sealed class AiBridgeLink
         {
             var r = JsonConvert.DeserializeObject<PublishResult>(publish(kind, JsonConvert.SerializeObject(data, Json)));
             if (r == null || !r.Ok) Why = $"{PublishName}({kind}): {r?.Message ?? r?.Error ?? "no answer"}";
+            if (r?.Error == "bridge_reloaded") { _publish = null; _nextLookup = 0; }   // the bridge reloaded: find its new methods
             return r;
         }
         catch (Exception ex) { Why = $"{PublishName}({kind}): {ex.Message}"; return null; }
+    }
+
+    /// <summary>From OnClose: the bridge drops this plugin's handler (it would pin the unloaded plugin and keep calling it).</summary>
+    public void Close()
+    {
+        try { _subscribe?.Invoke(Subscriber, ReplyKind, null!); } catch { }
+        _subscribedTo = null;
     }
 
     /// <summary>Replies received since the last call (Tick, main thread).</summary>
