@@ -963,7 +963,10 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private static readonly long PanelFlagsOffset = FlagsOffset(out PanelFlagsOffsetWhy);
     private const ulong PanelVisibleBit = (ulong)GameOffsets2.ElementFlags.IsVisibleLocal;
     private readonly ulong[] _panelFlags = new ulong[1];
-    private string? _rawPanelFlagsBroken = PanelFlagsOffsetWhy;   // set: IsVisibleLocal it is for this HUD run, and why
+    // Off: live 2026-10-11 in the Jungle Ruins the raw read said a big panel was open while IsVisibleLocal saw none,
+    // and the mismatch check never switched it off, so the route and the card drew nothing at all ("nothing shows us
+    // what to click"). IsVisibleLocal is allocation-free already; the raw read comes back only with that fixed.
+    private string? _rawPanelFlagsBroken = PanelFlagsOffsetWhy ?? "raw read off: it reported a big panel open while none was visible (2026-10-11)";
     private int _panelMismatches;           // checks where the raw read and IsVisibleLocal disagreed, this HUD run
     private double _nextPanelCheck;         // the raw read is checked against IsVisibleLocal once a second
 
