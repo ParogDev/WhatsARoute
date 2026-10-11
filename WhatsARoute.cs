@@ -625,12 +625,21 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private void ScanBossFight((int x, int y) cell)
     {
         var fight = false;
+        // The current step is "kill this boss" (UntilDead): that boss alive near you is the fight from its first second
+        // (2026-10-11 Zicoatl: the fight started at full life and the route kept framing the arena's wall tiles).
+        var steps = _book.StepsFor(_areaRaw);
+        var bossStep = _stepIndex >= 0 && _stepIndex < steps.Count ? steps[_stepIndex].UntilDead : null;
         foreach (var e in GameController.EntityListWrapper.OnlyValidEntities)
         {
-            if (e.Type != EntityType.Monster || !e.IsAlive || !e.IsHostile || e.Rarity != MonsterRarity.Unique) continue;
-            // Engaged only: a dormant boss (Zicoatl's statue at the Large Soul Core before it is clicked, 2026-10-11) is
-            // alive at full life and hid the marker on the thing to click.
-            if (e.GetComponent<Life>() is not { } life || life.CurHP >= life.MaxHP) continue;
+            if (e.Type != EntityType.Monster || !e.IsAlive || !e.IsHostile) continue;
+            var stepBoss = bossStep is { Length: > 0 } && e.Path?.Contains(bossStep, StringComparison.OrdinalIgnoreCase) == true;
+            if (!stepBoss)
+            {
+                if (e.Rarity != MonsterRarity.Unique) continue;
+                // Any other unique: engaged only. A dormant boss (Zicoatl's statue on the Large Soul Core before it is
+                // clicked) is alive at full life and hid the marker on the thing to click.
+                if (e.GetComponent<Life>() is not { } life || life.CurHP >= life.MaxHP) continue;
+            }
             if (e.GetComponent<Positioned>() is not { } p) continue;
             if (Math.Max(Math.Abs(p.GridPos.X - cell.x), Math.Abs(p.GridPos.Y - cell.y)) <= BossFightCells) { fight = true; break; }
         }
