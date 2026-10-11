@@ -773,11 +773,24 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private readonly List<ExileCore2.PoEMemory.Element> _bigPanels = new(24);
     private long _bigPanelsUi;
 
+    // The panel flag read straight from the element: the HUD's own Flags offset and IsVisibleLocal bit (GameOffsets2),
+    // one 8-byte read per panel. IsVisibleLocal refreshes the whole 1288-byte element struct (a frame cache) for one
+    // bit: measured live 2026-10-11 for the 19 panels, 2.15 KB and ~15 us per frame, against 1.3 KB and ~4 us here.
+    private static readonly long PanelFlagsOffset = System.Runtime.InteropServices.Marshal.OffsetOf<GameOffsets2.ElementOffsets>(nameof(GameOffsets2.ElementOffsets.Flags)).ToInt64();
+    private const ulong PanelVisibleBit = (ulong)GameOffsets2.ElementFlags.IsVisibleLocal;
+    private readonly ulong[] _panelFlags = new ulong[1];
+    private string? _rawPanelFlagsBroken;   // set: the raw read failed or disagreed, IsVisibleLocal it is for this HUD run
+    private int _panelMismatches;           // checks in a row where the raw read and IsVisibleLocal disagreed
+    private double _nextPanelCheck;         // the raw read is checked against IsVisibleLocal once a second
+
     /// <summary>
     /// Any fullscreen or large panel open (passive tree, inventory, stash...): the world drawing hides. These are
     /// top-level panels whose parent is always shown, so their own flag (IsVisibleLocal) is the answer: IsVisible
     /// walks the parents and allocated ~3 KB per panel per frame (profiled 2026-10-10: 12.5 KB and 46 us per frame
-    /// for the 19 panels). The panel lists are fetched again only when the UI object changes.
+    /// for the 19 panels). The panel lists are fetched again only when the UI object changes. The flag is read raw
+    /// (see <see cref="PanelFlagsOffset"/>), checked against the HUD's IsVisibleLocal when the lists are fetched and
+    /// once a second; three checks in a row that disagree (one can be a panel opening between the HUD's frame-cached
+    /// read and this live one) mean a HUD update moved the bit: back to IsVisibleLocal, and the log says which link broke.
     /// </summary>
     private bool BigPanelOpen()
     {
@@ -788,11 +801,46 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             _bigPanels.AddRange(ui.FullscreenPanels);
             _bigPanels.AddRange(ui.LargePanels);
             _bigPanelsUi = ui.Address;
+            _nextPanelCheck = 0;
+        }
+        if (_rawPanelFlagsBroken == null)
+        {
+            if (GameController.Memory is not ExileCore2.Memory mem) RawPanelFlagsBroken($"GameController.Memory is {GameController.Memory?.GetType().Name ?? "null"}, not ExileCore2.Memory");
+            else
+            {
+                var now = _clock.Elapsed.TotalSeconds;
+                var check = now >= _nextPanelCheck;
+                if (check) _nextPanelCheck = now + 1;
+                var open = false;
+                string? mismatch = null;
+                foreach (var p in _bigPanels)
+                {
+                    if (!mem.ReadMem<ulong>((IntPtr)(p.Address + PanelFlagsOffset), _panelFlags)) { RawPanelFlagsBroken($"reading {p.GetType().Name}'s Flags at {p.Address + PanelFlagsOffset:X} failed"); break; }
+                    var raw = (_panelFlags[0] & PanelVisibleBit) != 0;
+                    if (check && mismatch == null && raw != p.IsVisibleLocal)
+                        mismatch = $"{p.GetType().Name}: Flags (+{PanelFlagsOffset}) bit 0x{PanelVisibleBit:X} reads {raw}, IsVisibleLocal {!raw}";
+                    if (raw) { open = true; if (!check) break; }
+                }
+                if (check)
+                {
+                    _panelMismatches = mismatch == null ? 0 : _panelMismatches + 1;
+                    if (_panelMismatches >= 3) RawPanelFlagsBroken(mismatch!);
+                }
+                if (_rawPanelFlagsBroken == null) return open;
+            }
         }
         foreach (var p in _bigPanels)
             if (p.IsVisibleLocal) return true;
         return false;
     }
+
+    private void RawPanelFlagsBroken(string why)
+    {
+        _rawPanelFlagsBroken = why;
+        LogError($"WhatsARoute: the big-panel check reads IsVisibleLocal from now on: {why}", 10);
+    }
+
+    private SubMap? _largeMap;   // one object per LargeMap element: AsObject made a new one (and read it afresh) every frame, ~1.8 KB
 
     private void RenderBody()
     {
@@ -822,7 +870,9 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         // The view at draw time: fresh camera and feet, as of DelayMs ago (FreshView), else the HUD's per-frame copy.
         _fresh.Sample(GameController, pr, Settings.World.DelayMs.Value, Settings.World.FreshView.Value, out var m, out var half, out var player);
         var disp = ImGui.GetIO().DisplaySize;
-        var largeMap = GameController.IngameState.IngameUi.Map.LargeMap.AsObject<SubMap>();
+        var largeMapEl = GameController.IngameState.IngameUi.Map.LargeMap;
+        if (_largeMap == null || _largeMap.Address != largeMapEl.Address) _largeMap = largeMapEl.AsObject<SubMap>();
+        var largeMap = _largeMap;
         var open = largeMap.IsVisible;
 
         // The thing to click, at its live position (a transition can move: Pos is read every frame from the cached
@@ -1021,6 +1071,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 Places = _resolver.Places.Count,
                 SightingsScanUs = Math.Round(_scanUs, 1),
                 Goals = _resolved.Goals.Count,
+                PanelCheck = _rawPanelFlagsBroken ?? "raw",
             },
         };
         foreach (var p in _frame.MapPath) { dto.MapPath.Add((int)p.X); dto.MapPath.Add((int)p.Y); }
