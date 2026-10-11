@@ -51,6 +51,25 @@ public sealed class AreaGrid
         return g;
     }
 
+    /// <summary>
+    /// Opens a disc of radius <paramref name="r"/> cells: a doorway. The game's pathfinding data keeps door cells blocked
+    /// whether the door is open or not (2026-10-11 Venom Crypts, read 0 at an open door), so the route would never pass
+    /// one. Returns false when the disc was already walkable. Clearance there is set low (the path hugs the doorway).
+    /// </summary>
+    public bool Carve(int cx, int cy, int r)
+    {
+        var changed = false;
+        for (var y = cy - r; y <= cy + r; y++)
+        for (var x = cx - r; x <= cx + r; x++)
+        {
+            if (!InBounds(x, y) || (x - cx) * (x - cx) + (y - cy) * (y - cy) > r * r) continue;
+            var i = y * W + x;
+            if (!Walk[i]) { Walk[i] = true; changed = true; }
+            if (Clear[i] < 2) Clear[i] = 2;
+        }
+        return changed;
+    }
+
     public bool InBounds(int x, int y) => (uint)x < (uint)W && (uint)y < (uint)H;
     public bool Walkable(int x, int y) => InBounds(x, y) && Walk[y * W + x];
     public byte ClearanceAt(int x, int y) => InBounds(x, y) ? Clear[y * W + x] : (byte)0;
