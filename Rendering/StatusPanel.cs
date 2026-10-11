@@ -31,6 +31,8 @@ public sealed class StatusPanel
         public string? Why;             // the broken link, raw
         public string? AreaWhy;         // why the area grid is not there, raw
         public bool GridReady, FieldReady, PathReady, Blocked, FromMemory, HasTravelTo, ViaTravelMap, ViaPortal, TravelMapOpen, StopChosen;
+        public string? TravelVia;       // what to take here for another area ("the Desert Map", "the waypoint"); null: an exit
+        public string? Heading;         // the caravan is travelling there (Act 2): wait, nothing to walk to
         public string? PortalKey;       // the player's own portal binding ("Shift+T"), from the game config
         public bool DoorAhead;          // a closed door on the path ahead: click it
         public string? TravelHub;      // what to take in town after the portal: "the Desert Map" (Act 2), else "the waypoint"
@@ -185,6 +187,7 @@ public sealed class StatusPanel
             if (i.Why is { } bw && bw.Contains("no exit seen", StringComparison.Ordinal)) return ("Cut off from it, and no exit found on this side yet", Tone.Warn);
             return ("Cut off from it here: looking for a way out", Tone.Busy);
         }
+        if (i.Heading != null) return ("The caravan is on its way: its gates open when it stops", Tone.Busy);
         if (i.Why is { } w)
         {
             if (Has(w, "loaded near you yet")) return ("Waiting for it to load", Tone.Busy);
@@ -212,7 +215,7 @@ public sealed class StatusPanel
         if (i.HasTravelTo)
         {
             if (i.TravelMapOpen) return i.StopChosen ? ("Pick the marked stop", Tone.Info) : ("That destination is not on this map yet", Tone.Info);
-            return i.ViaTravelMap ? ("In another area: take the Desert Map", Tone.Info) : ("In another area: take this exit", Tone.Info);
+            return i.TravelVia is { } via ? ($"In another area: take {via}", Tone.Info) : ("In another area: take this exit", Tone.Info);
         }
         if (!i.FieldReady || !i.PathReady) return ("Finding the way", Tone.Busy);
         if (i.DoorAhead) return ("Open the door ahead", Tone.Info);
@@ -280,5 +283,6 @@ public sealed class StatusPanel
         && string.Equals(a.Note, b.Note, StringComparison.Ordinal) && string.Equals(a.Why, b.Why, StringComparison.Ordinal) && string.Equals(a.AreaWhy, b.AreaWhy, StringComparison.Ordinal)
         && a.GridReady == b.GridReady && a.FieldReady == b.FieldReady && a.PathReady == b.PathReady && a.Blocked == b.Blocked && a.FromMemory == b.FromMemory
         && a.HasTravelTo == b.HasTravelTo && a.ViaTravelMap == b.ViaTravelMap && a.ViaPortal == b.ViaPortal && string.Equals(a.PortalKey, b.PortalKey, StringComparison.Ordinal) && a.TravelMapOpen == b.TravelMapOpen && a.StopChosen == b.StopChosen && a.DoorAhead == b.DoorAhead
+        && string.Equals(a.TravelVia, b.TravelVia, StringComparison.Ordinal) && string.Equals(a.Heading, b.Heading, StringComparison.Ordinal)
         && (a.PathCells <= 4) == (b.PathCells <= 4) && string.Equals(a.Detail, b.Detail, StringComparison.Ordinal);
 }
