@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using ExileCore2;
 using ExileCore2.PoEMemory;
@@ -58,6 +59,8 @@ public sealed class WorldMapReader
     public bool JustScanned;
     /// <summary>Destinations of the unlocked caravan stops, from every Travel-view scan this HUD run.</summary>
     public readonly HashSet<string> CaravanStops = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The same, as a list replaced (never changed) when a stop is new: safe for GetState from another thread.</summary>
+    public string[] CaravanStopList { get; private set; } = [];
     private readonly Dictionary<long, (string id, string name)> _areaRows = new();
     private readonly List<(string id, string name, Vector2 c)> _dests = new();
     private double _nextScan;
@@ -127,7 +130,8 @@ public sealed class WorldMapReader
                 var dist = Vector2.Distance(d.c, s.Center);
                 if (dist < best) { best = dist; s.DestId = d.id; s.DestName = d.name; }
             }
-            if (s.Unlocked && s.DestId.Length > 0) CaravanStops.Add(s.DestId);
+            if (s.Unlocked && s.DestId.Length > 0 && CaravanStops.Add(s.DestId))
+                CaravanStopList = CaravanStops.OrderBy(d => d, StringComparer.OrdinalIgnoreCase).ToArray();
         }
     }
 

@@ -30,31 +30,35 @@ public sealed class CaravanState
     public const string Town = "G2_town";
     private static readonly QuestFlag[] Bits = [QuestFlag.Act2CaravanLocation0, QuestFlag.Act2CaravanLocation1, QuestFlag.Act2CaravanLocation2, QuestFlag.Act2CaravanLocation3];
 
-    private readonly Dictionary<int, string> _stops = new() { [8] = "G2_10_1" };   // seen 2026-10-11
-    private string _file = "";
+    private readonly CaravanStopsDto _file = new() { Stops = { [8] = "G2_10_1" } };   // 8 seen 2026-10-11
+    private string _path = "";
     private int _entryLoc = -1;
+    private bool _wasHeading;
 
     public int Location { get; private set; } = -1;
     public bool Stopping { get; private set; }
     public bool Moved { get; private set; }
     public string? OpenExit { get; private set; }
-    /// <summary>The caravan was sent to a stop this visit and its gates are not open yet: the stop's area id, "" when not learnt yet.</summary>
+    /// <summary>The caravan was sent to a stop and its gates are not open yet: the stop's area id, "" when not learnt yet.</summary>
     public string? Heading { get; private set; }
-    public string? Why;
+    /// <summary>The flags could not be read (in the caravan, this visit).</summary>
+    public string? Why { get; private set; }
+    /// <summary>caravan-stops.json could not be read or written (kept until it works).</summary>
+    public string? FileWhy { get; private set; }
     public string Signal => $"Act2CaravanLocation={Location} (entry {_entryLoc}) CaravanStopping={(Stopping ? 1 : 0)} openExit={OpenExit ?? "none"}";
 
     public void Load(string dir)
     {
-        _file = Path.Combine(dir, "caravan-stops.json");
+        _path = Path.Combine(dir, "caravan-stops.json");
         try
         {
-            if (File.Exists(_file) && JsonConvert.DeserializeObject<Dictionary<int, string>>(File.ReadAllText(_file)) is { } d)
-                foreach (var (k, v) in d) _stops[k] = v;
+            if (File.Exists(_path) && JsonConvert.DeserializeObject<CaravanStopsDto>(File.ReadAllText(_path)) is { } d)
+                foreach (var (k, v) in d.Stops) _file.Stops[k] = v;
         }
-        catch (Exception ex) { Why = $"caravan-stops.json: {ex.Message}"; }
+        catch (Exception ex) { FileWhy = $"caravan-stops.json: {ex.Message}"; }
     }
 
-    public void ResetArea() { _entryLoc = -1; Location = -1; Moved = false; Heading = null; OpenExit = null; }
+    public void ResetArea() { _entryLoc = -1; Location = -1; Moved = false; _wasHeading = false; Heading = null; OpenExit = null; Why = null; }
 
     /// <summary>In the caravan, at the resolve rate (2 Hz): quest flags (the HUD caches the dictionary) and the AreaTransition list.</summary>
     public void Update(GameController gc, string areaRaw)
@@ -77,28 +81,46 @@ public sealed class CaravanState
         if (loc != _entryLoc) Moved = true;
         Location = loc;
 
+        // Every AreaTransition in the caravan town is one of its gate exits. Targetable as the resolver reads it.
         OpenExit = null;
         if (gc.EntityListWrapper.ValidEntitiesByType.TryGetValue(EntityType.AreaTransition, out var list))
             foreach (var e in list)
-                if (e.IsValid && e.IsTargetable && e.GetComponent<AreaTransition>()?.WorldArea?.Id is { } id) { OpenExit = id; break; }
+                if (e.IsValid && e.GetComponent<Targetable>() is { isTargetable: true } && e.GetComponent<AreaTransition>()?.WorldArea?.Id is { } id) { OpenExit = id; break; }
 
         if (OpenExit != null)
         {
-            // Stopped with its gates open: the index names this destination from now on.
-            if (Moved && Stopping && (!_stops.TryGetValue(loc, out var known) || known != OpenExit)) { _stops[loc] = OpenExit; Save(); }
+            // Gates open after the trip (they were closed since the pick): the index names this destination, and the
+            // trip is over (a gate dropping out of the list for a moment later must not bring the card back). Gates
+            // still open from the last stop right after a new pick are not the new stop's: wait for them to close.
+            if (Moved && _wasHeading)
+            {
+                if (!_file.Stops.TryGetValue(loc, out var known) || known != OpenExit) { _file.Stops[loc] = OpenExit; Save(); }
+                Moved = false;
+                _entryLoc = loc;
+                _wasHeading = false;
+            }
             return;
         }
-        if (Moved) Heading = _stops.TryGetValue(loc, out var dest) ? dest : "";
+        if (!Moved) return;
+        Heading = _file.Stops.TryGetValue(loc, out var dest) ? dest : "";
+        _wasHeading = true;
     }
 
     private void Save()
     {
-        if (_file.Length == 0) return;
+        if (_path.Length == 0) return;
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(_file)!);
-            File.WriteAllText(_file, JsonConvert.SerializeObject(_stops, Formatting.Indented));
+            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+            File.WriteAllText(_path, JsonConvert.SerializeObject(_file, Formatting.Indented));
+            FileWhy = null;
         }
-        catch (Exception ex) { Why = $"caravan-stops.json: {ex.Message}"; }
+        catch (Exception ex) { FileWhy = $"caravan-stops.json: {ex.Message}"; }
     }
+}
+
+/// <summary>caravan-stops.json: the caravan's location index (QuestFlags Act2CaravanLocation0..3) to the area its gates open on.</summary>
+public sealed class CaravanStopsDto
+{
+    public Dictionary<int, string> Stops { get; set; } = new();
 }

@@ -294,7 +294,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         var cell = ((int)(r.Pos.X / AreaGrid.GridToWorld), (int)(r.Pos.Y / AreaGrid.GridToWorld));
         var now = _clock.Elapsed.TotalSeconds;
 
-        if (now >= _nextFlags) { _nextFlags = now + 2; ReadFlags(); if (!_waypoints.HasCharacter) UseCharacter(); }
+        if (now >= _nextFlags) { _nextFlags = now + 2; ReadFlags(); UseCharacter(); }   // a character switch shows up within 2 s
         if (now >= _nextResolve)
         {
             _nextResolve = now + 0.5;
@@ -1025,7 +1025,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         dto.HeadingName = _resolved.HeadingName;
         if (_caravan.Location >= 0) dto.HeadingSignal = _caravan.Signal;
         if (_caravan.Why != null) dto.Notes.Add(_caravan.Why);
-        dto.CaravanStops = _map.CaravanStops.OrderBy(s => s, StringComparer.OrdinalIgnoreCase).ToList();
+        if (_caravan.FileWhy != null) dto.Notes.Add(_caravan.FileWhy);
+        dto.CaravanStops = _map.CaravanStopList.ToList();
         dto.WaypointsKnown = _waypoints.Count;
         if (_waypoints.Why != null) dto.Notes.Add(_waypoints.Why);
         dto.TravelMapOpen = _map.Open;

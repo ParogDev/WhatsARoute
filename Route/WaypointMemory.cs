@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Newtonsoft.Json;
 
 namespace WhatsARoute.Route;
@@ -13,14 +14,13 @@ namespace WhatsARoute.Route;
 /// </summary>
 public sealed class WaypointMemory
 {
-    private Dictionary<string, HashSet<string>> _all = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, HashSet<string>> _all = new(StringComparer.Ordinal);
     private HashSet<string> _mine = new(StringComparer.OrdinalIgnoreCase);
     private string _character = "";
     private string _file = "";
     public string? Why;
 
     public int Count => _mine.Count;
-    public bool HasCharacter => _character.Length > 0;
 
     /// <summary>Loads the file once, and picks the character's set when the character changes.</summary>
     public void Use(string dir, string character)
@@ -30,8 +30,8 @@ public sealed class WaypointMemory
             _file = Path.Combine(dir, "waypoints.json");
             try
             {
-                if (File.Exists(_file) && JsonConvert.DeserializeObject<Dictionary<string, HashSet<string>>>(File.ReadAllText(_file)) is { } d)
-                    foreach (var (k, v) in d) _all[k] = new HashSet<string>(v, StringComparer.OrdinalIgnoreCase);
+                if (File.Exists(_file) && JsonConvert.DeserializeObject<WaypointsDto>(File.ReadAllText(_file)) is { } d)
+                    foreach (var (k, v) in d.Characters) _all[k] = new HashSet<string>(v, StringComparer.OrdinalIgnoreCase);
             }
             catch (Exception ex) { Why = $"waypoints.json: {ex.Message}"; }
         }
@@ -54,8 +54,16 @@ public sealed class WaypointMemory
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_file)!);
-            File.WriteAllText(_file, JsonConvert.SerializeObject(_all, Formatting.Indented));
+            var dto = new WaypointsDto { Characters = _all.ToDictionary(kv => kv.Key, kv => kv.Value.OrderBy(a => a, StringComparer.OrdinalIgnoreCase).ToList()) };
+            File.WriteAllText(_file, JsonConvert.SerializeObject(dto, Formatting.Indented));
+            Why = null;
         }
         catch (Exception ex) { Why = $"waypoints.json: {ex.Message}"; }
     }
+}
+
+/// <summary>waypoints.json: per character name, the area ids whose waypoint it has unlocked.</summary>
+public sealed class WaypointsDto
+{
+    public Dictionary<string, List<string>> Characters { get; set; } = new();
 }

@@ -68,11 +68,17 @@ public sealed class TargetResolver
     /// <summary>
     /// The caravan was sent to a stop and its gates are not open yet: nothing to walk to (the Desert Map would only
     /// send it again). The card says where it is heading; no goals, and not "nothing loaded yet", so the last route
-    /// (to the Desert Map) is dropped.
+    /// (to the Desert Map) is dropped. Heading elsewhere than <paramref name="dest"/> whose waypoint this character
+    /// unlocked: the waypoint gets you there now, so it is the goal instead of the wait.
     /// </summary>
-    private bool CaravanTravelling(GameController gc, Result r)
+    private bool CaravanTravelling(GameController gc, Result r, string dest)
     {
         if (Caravan?.Heading is not { } h) return false;
+        if (dest.Length > 0 && !string.Equals(h, dest, StringComparison.OrdinalIgnoreCase) && Waypoints?.Unlocked(dest) == true)
+        {
+            Entities(gc, r, EntityType.Waypoint, _ => true);
+            if (r.Goals.Count > 0) { r.Label = $"Waypoint: travel to {AreaName(gc, dest)}"; r.Via = "the waypoint"; return true; }
+        }
         r.Heading = h;
         r.HeadingName = h.Length > 0 ? AreaName(gc, h) : "a new stop";
         r.Label = $"Caravan heading to {r.HeadingName}: wait for the gates";
@@ -175,7 +181,7 @@ public sealed class TargetResolver
         foreach (var part in spec.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             ResolveOne(gc, book, part, areaRawName, r);
-            if (r.Goals.Count > 0) return;
+            if (r.Goals.Count > 0 || r.Heading != null) return;   // the caravan travelling is an answer too: nothing to walk to
             if (r.Why != null) whys.Add(r.Why);
         }
         r.Why = string.Join("; ", whys);
@@ -218,7 +224,7 @@ public sealed class TargetResolver
                 Entities(gc, r, EntityType.AreaTransition, e => IsTargetable(e) &&
                                      (arg.Length == 0 || e.RenderName?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true ||
                                       string.Equals(e.GetComponent<AreaTransition>()?.WorldArea?.Id, arg, StringComparison.OrdinalIgnoreCase)));
-                if (r.Goals.Count == 0 && CaravanTravelling(gc, r)) return;
+                if (r.Goals.Count == 0 && CaravanTravelling(gc, r, "")) return;
                 if (r.Goals.Count == 0)
                 {
                     // No open exit: a travel table (the caravan's Desert Map) is the way on.
@@ -243,7 +249,7 @@ public sealed class TargetResolver
                 Entities(gc, r, EntityType.AreaTransition, e => IsTargetable(e) &&
                                      string.Equals(e.GetComponent<AreaTransition>()?.WorldArea?.Id, arg, StringComparison.OrdinalIgnoreCase));
                 if (r.Goals.Count > 0) break;
-                if (CaravanTravelling(gc, r)) return;
+                if (CaravanTravelling(gc, r, arg)) return;
                 Remembered(r, s => s.Type == nameof(EntityType.AreaTransition) && s.Targetable && string.Equals(s.DestArea, arg, StringComparison.OrdinalIgnoreCase));
                 if (r.Goals.Count > 0) break;
                 // 2026-10-11 Jungle Ruins -> Venom Crypts: the exit had not loaded on arrival, and the card said "open a
@@ -265,7 +271,7 @@ public sealed class TargetResolver
                 if (r.Goals.Count > 0) { r.Label = $"Waypoint: travel to {name}"; r.Via = "the waypoint"; break; }
                 // Nothing loaded near you (a boss arena): a waypoint or checkpoint seen earlier this visit, else any exit.
                 Remembered(r, s => s.Type == nameof(EntityType.Waypoint) || s.Path.Contains("Checkpoint", StringComparison.OrdinalIgnoreCase));
-                if (r.Goals.Count > 0) { r.Label = $"Waypoint: travel to {name} (seen earlier)"; break; }
+                if (r.Goals.Count > 0) { r.Label = $"Waypoint: travel to {name} (seen earlier)"; r.Via = "the waypoint"; break; }
                 Entities(gc, r, EntityType.AreaTransition, IsTargetable);
                 if (r.Goals.Count == 0) Remembered(r, s => s.Type == nameof(EntityType.AreaTransition) && s.Targetable);
                 if (r.Goals.Count > 0) r.Label = $"Exit, then travel to {name}";
