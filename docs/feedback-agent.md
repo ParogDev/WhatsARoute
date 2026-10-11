@@ -50,13 +50,15 @@ MCP tools (server `exileapi`, shared HTTP server): `route_state` (the plugin liv
   1. `git submodule update --init -- "Plugins/Whats A Route"`, then in that folder `git switch -c <topic> origin/main`,
      edit, commit (message ends with the Co-Authored-By line you were given).
   2. Review: the Skill `code-review` on the plugin checkout; fix what holds up, commit; then
-     `powershell -NoProfile -ExecutionPolicy Bypass -File tools\mark-reviewed.ps1 -Path "Plugins\Whats A Route"`
-     (a hook blocks `gh pr create` until that HEAD is marked).
+     `powershell -NoProfile -ExecutionPolicy Bypass -File tools/mark-reviewed.ps1 -Path "Plugins/Whats A Route"`
+     (forward slashes: your shell is Git Bash; a hook blocks `gh pr create` until that HEAD is marked).
   3. Push, `gh pr create` (body ends with the generated-with line you were given), then merge only with
-     `bash tools/merge-on-green.sh <pr> --repo ParogDev/WhatsARoute` as a plain command (never piped, never `gh pr merge`).
+     `bash tools/merge-on-green.sh <pr> --repo ParogDev/WhatsARoute --timeout 500` as a plain foreground command (never
+     piped, never in the background, never `gh pr merge`). Exit 4 is a timeout: run it again. Your session is stopped as
+     soon as your turn ends, so anything left running in the background is cut.
   4. Pointer bump: in the plugin folder `git checkout origin/main` (after `git fetch`), then in your worktree
      `git switch -c bump-route-<seq> origin/main`, `git add "Plugins/Whats A Route"`, commit "Bump Whats A Route (#<pr>):
-     ...", push, `gh pr create`, `bash tools/merge-on-green.sh <pr>` (pointer-only PRs need no review).
+     ...", push, `gh pr create`, `bash tools/merge-on-green.sh <pr> --timeout 500` (pointer-only PRs need no review).
 - **Then sync the HUD:** `git -C "<main>" pull --ff-only`, `git -C "<main>" submodule update -- "Plugins/Whats A Route"`,
   then MCP `reload_plugin plugin="Whats A Route"` (its diagnostics must be empty). After a reload, run `run_csharp` to read
   `Settings.Route.IncludeOptional`; set it back to true only if the saved settings say false. If `pull --ff-only` refuses,
@@ -74,5 +76,5 @@ MCP tools (server `exileapi`, shared HTTP server): `route_state` (the plugin liv
   your session at once (its transcript stays viewable). Never wait for input; nobody follows up in this session (a new
   press gets a new session).
 - Leave nothing half-done: merged and synced, or nothing changed. The dispatcher then removes your worktree; one that
-  holds uncommitted or unmerged work is kept for a person to look at.
+  holds uncommitted or unmerged work (submodule commits on no remote included) is kept for a person to look at.
 - End with the final message for the player. Nothing else is shown to them.
