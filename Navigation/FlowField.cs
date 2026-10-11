@@ -197,17 +197,25 @@ public sealed class FlowField
         var g = Grid;
         if (Snap(start) is not { } cur) { why = $"player cell ({start.x},{start.y}) cannot reach the goal (other island, or blocked ground)"; return false; }
         cells.Add(cur);
+        // The loop reads the arrays itself rather than through CostAt / Walkable: same answers, and one method per
+        // replan instead of ~20 tiny calls per cell, which is what an instrumenting profiler measured (2026-10-11: a
+        // Harmony hook on each made Descend read ~2 ms per call; it is 2-30 us unhooked, route-bench "step").
+        var cost = Cost;
+        var walk = g.Walk;
+        int w = g.W, h = g.H;
         while (cells.Count < maxCells)
         {
-            var c = CostAt(cur.x, cur.y);
+            var i = cur.y * w + cur.x;
+            var c = cost[i];
             if (c <= 0) return true;
             var best = c;
             var next = cur;
             for (var k = 0; k < 8; k++)
             {
                 int nx = cur.x + Dx[k], ny = cur.y + Dy[k];
-                if (k >= 4 && (!g.Walkable(cur.x + Dx[k], cur.y) || !g.Walkable(cur.x, cur.y + Dy[k]))) continue;
-                var nc = CostAt(nx, ny);
+                if ((uint)nx >= (uint)w || (uint)ny >= (uint)h) continue;
+                if (k >= 4 && (!walk[cur.y * w + nx] || !walk[ny * w + cur.x])) continue;
+                var nc = cost[ny * w + nx];
                 if (nc < best) { best = nc; next = (nx, ny); }
             }
             if (next == cur) { why = $"descent stuck at ({cur.x},{cur.y}), cost {c:0.#}"; return false; }

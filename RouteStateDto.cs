@@ -77,4 +77,6 @@ public sealed class RouteTimingsDto
     public double SightingsScanUs { get; set; }
     /// <summary>Load condition: goal cells the objective resolved to (a Radar tile place can be hundreds).</summary>
     public int Goals { get; set; }
+    /// <summary>How the big-panel check reads the panel flag: "raw" (Flags bit, one read per panel), or why it fell back to IsVisibleLocal.</summary>
+    public string? PanelCheck { get; set; }
 }
