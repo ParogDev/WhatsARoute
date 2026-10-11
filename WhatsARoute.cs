@@ -304,6 +304,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             _resolver.Sightings.FlushIfIdle(DataDir, now);
             ScanDoors();
             FindDoorAhead();
+            ScanBossFight(cell);
         }
 
         var field = _field;
@@ -601,14 +602,37 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     {
         var key = $"{GameController.Area.CurrentArea?.Hash ?? 0:x8}:{part}";   // per area instance: a new instance has the boss again
         if (_deadSeen.Contains(key)) return true;
+        // Dead, and none alive: a boss can have dead copies of itself loaded while it fights (Zicoatl, 2026-10-11: two
+        // dead VaalStatueBoss entities next to the living one).
+        string? dead = null;
         foreach (var e in GameController.EntityListWrapper.OnlyValidEntities)
-            if (e.Type == EntityType.Monster && !e.IsAlive && e.Path?.Contains(part, StringComparison.OrdinalIgnoreCase) == true)
-            {
-                _deadSeen.Add(key);
-                Trace("boss-dead", e.Path);
-                return true;
-            }
-        return false;
+        {
+            if (e.Type != EntityType.Monster || e.Path?.Contains(part, StringComparison.OrdinalIgnoreCase) != true) continue;
+            if (e.IsAlive) return false;
+            dead = e.Path;
+        }
+        if (dead == null) return false;
+        _deadSeen.Add(key);
+        Trace("boss-dead", dead);
+        return true;
+    }
+
+    // A boss fight (2026-10-11, the user fighting Zicoatl: "Why is it tracking anything right now? I'm in a boss fight and
+    // it's distracting"): a living unique monster this close hides the route in the world until the fight ends.
+    private const int BossFightCells = 110;
+    private bool _bossFight;
+
+    private void ScanBossFight((int x, int y) cell)
+    {
+        var fight = false;
+        foreach (var e in GameController.EntityListWrapper.OnlyValidEntities)
+        {
+            if (e.Type != EntityType.Monster || !e.IsAlive || !e.IsHostile || e.Rarity != MonsterRarity.Unique) continue;
+            if (e.GetComponent<Positioned>() is not { } p) continue;
+            if (Math.Max(Math.Abs(p.GridPos.X - cell.x), Math.Abs(p.GridPos.Y - cell.y)) <= BossFightCells) { fight = true; break; }
+        }
+        if (fight != _bossFight) Trace(fight ? "boss-fight" : "boss-fight-over");
+        _bossFight = fight;
     }
 
     private readonly HashSet<string> _deadSeen = new(StringComparer.OrdinalIgnoreCase);
@@ -1026,6 +1050,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             if (Settings.Debug.ShowUiMask) _mask.DrawOutlines();
         }
         if (Settings.Debug.ShowStatus) DrawStatus();
+        if (_bossFight) return;   // the card stays (it says so); nothing in the world while you fight
         var pr = _playerRender;
         if (pr == null) return;
 
@@ -1176,6 +1201,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 PortalKey = _portalKey,
                 DoorAhead = _doorAhead is { IsValid: true, IsTargetable: true },
                 UseItem = _useItem,
+                BossFight = _bossFight,
                 TravelHub =_areaRaw.StartsWith("G2_", StringComparison.OrdinalIgnoreCase) ? "the Desert Map" : "the waypoint",
                 TravelMapOpen = _map.Open,
                 StopChosen = _chosenStop != null,
