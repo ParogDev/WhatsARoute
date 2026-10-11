@@ -230,20 +230,26 @@ public sealed class TargetResolver
             {
                 r.Label = arg;
                 // Every row with that name: Radar lists repeated places separately (G2_6 has three "Ancient Seal").
+                // Entity rows first: once the thing itself is loaded, its tile/room rows are dropped (2026-10-11 Venom
+                // Crypts: the 169 boss-room tiles kept the route on the nearest tile, not the corpse with the vial).
                 var found = false;
-                foreach (var t in book.RadarTargetsFor(areaRawName))
+                var entityHit = false;
+                foreach (var t in book.RadarTargetsFor(areaRawName).OrderBy(t => string.Equals(t.TargetType, "Entity", StringComparison.OrdinalIgnoreCase) ? 0 : 1))
                 {
                     if (!string.Equals(t.DisplayName, arg, StringComparison.OrdinalIgnoreCase)) continue;
                     found = true;
+                    var isEntity = string.Equals(t.TargetType, "Entity", StringComparison.OrdinalIgnoreCase);
+                    if (!isEntity && entityHit) continue;
                     var before = r.Goals.Count;
                     foreach (var alt in (t.Alternatives ?? []).Prepend(t))
                     {
-                        if (string.Equals(t.TargetType, "Entity", StringComparison.OrdinalIgnoreCase))
+                        if (isEntity)
                             Entities(gc, r, e => RouteBook.Like(e.Path, alt.Name), MayBeMonster(alt.Name));
                         else
                             Tiles(gc, areaRawName, alt.Name, r, alt.Rooms ?? t.Rooms);
                         if (r.Goals.Count > before) break;
                     }
+                    if (isEntity && r.Goals.Count > before) entityHit = true;
                 }
                 if (!found) { r.Why = book.RadarError ?? $"Radar targets.json has no '{arg}' for area {areaRawName}"; return; }
                 if (!r.FromEntities && r.Goals.Count > 0) ExitOnPlace(gc, r, arg, areaRawName);
