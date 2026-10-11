@@ -76,6 +76,8 @@ public sealed class UiMask
         h.Add(ui.Map?.LargeMap?.IsVisibleLocal ?? false);
         h.Add(ui.Map?.SmallMiniMap?.IsVisibleLocal ?? false);
         h.Add(ui.QuestTracker?.IsVisibleLocal ?? false);
+        h.Add(ui.OpenLeftPanel?.Address ?? 0);    // the side panel shown (stash, inventory...), or none
+        h.Add(ui.OpenRightPanel?.Address ?? 0);
         foreach (var w in _wrappers)
         {
             h.Add(w.ChildCount);
@@ -107,6 +109,12 @@ public sealed class UiMask
         _wrappers.Clear();
         var ui = gc.IngameState.IngameUi;
         var screen = disp.X * disp.Y;
+
+        // Side panels (stash, inventory, social, skills...): ExileCore2's LargePanels leave them out, so the big-panel
+        // check never hid the route for them (2026-10-11, the user: "Drawing is visible through stash tab panels").
+        // OpenLeftPanel / OpenRightPanel resolve to whichever one is shown.
+        foreach (var side in new[] { ui.OpenLeftPanel, ui.OpenRightPanel })
+            if (side is { } s && s.IsVisible) Add(s.GetClientRect());
 
         if (ui.Map?.SmallMiniMap is { } mini && mini.IsVisible) Add(mini.GetClientRect());
         // The area info at the top right (area, monster level, league) while the large map is open.
