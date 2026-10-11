@@ -272,6 +272,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         if (t >= _nextLiveCheck) { _nextLiveCheck = t + 0.5; if (_book.Changed()) ReloadRoute(); }   // the agent's live edits, in half a second
         if (t >= _nextQuests) { _nextQuests = t + 1; ReadQuests(); }
         ReadTravelMap(t);   // every tick: the open check is one cached read; the node scan inside is rate-limited
+        if (_gridRefreshed) { _gridRefreshed = false; _goalSig = ""; _blockedField = null; _nextResolve = 0; }   // fields belong to the old grid
         var grid = _grid;
         if (grid == null) { _why = _areaWhy ?? "building the area grid"; _frame.Ready = false; return; }
         var r = _playerRender;
@@ -371,19 +372,50 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
 
     // A closed door on the way (2026-10-11 Venom Crypts, the user: "it should make me click the door here"): doors are
     // walkable in the pathfinding grid, so the route runs straight through them. Closed = targetable.
-    private const int DoorAheadCells = 160, DoorNearPath = 5;
+    private const int DoorAheadCells = 160, DoorNearPath = 5, DoorCutOffCells = 90;
     private readonly List<(Entity e, Render r)> _doors = new();
     private Entity? _doorAhead;
     private Render? _doorRender;
     private double _doorAppearedAt;
 
-    /// <summary>Closed doors loaded now (every resolve, 2 Hz): a path test on the entity list, no component reads but Render.</summary>
+    /// <summary>
+    /// Closed doors loaded now (every resolve, 2 Hz): a path test on the entity list, no component reads but Render. A
+    /// door that was closed and is open now changed the walkable ground, and the grid is a copy from area entry: the
+    /// terrain is read again (on a worker; the old grid keeps routing until the new one is in).
+    /// </summary>
     private void ScanDoors()
     {
+        var opened = false;
+        foreach (var (e, _) in _doors)
+            if (e.IsValid && !e.IsTargetable) { opened = true; break; }
         _doors.Clear();
         foreach (var e in GameController.EntityListWrapper.OnlyValidEntities)
             if (e.IsTargetable && e.Path is { } p && p.EndsWith("/Door", StringComparison.Ordinal) && e.GetComponent<Render>() is { } r)
                 _doors.Add((e, r));
+        if (opened) { Trace("door-opened"); RefreshGrid(); }
+    }
+
+    private volatile bool _gridRefreshed;
+
+    /// <summary>The pathfinding grid read again in this area (a door opened); the objective's field is rebuilt on it.</summary>
+    private void RefreshGrid()
+    {
+        int[][]? pf; float[][]? height;
+        try { pf = GameController.IngameState.Data.RawPathfindingData; height = GameController.IngameState.Data.RawTerrainHeightData; }
+        catch (Exception ex) { _why = $"re-reading terrain after a door opened: {ex.Message}"; return; }
+        var ct = _areaCts.Token;
+        var minEdges = Settings.World.MinContourEdges.Value;
+        Task.Run(() =>
+        {
+            var g = AreaGrid.From(pf, height, out _);
+            if (g == null || ct.IsCancellationRequested) return;
+            var e = EdgeMap.Build(g, minEdges, ct);
+            if (e == null || ct.IsCancellationRequested) return;
+            _edgeStamp = new int[e.Pieces.Count];
+            _edges = e;
+            _grid = g;
+            _gridRefreshed = true;
+        }, ct);
     }
 
     /// <summary>The first closed door within <see cref="DoorNearPath"/> cells of the path's next <see cref="DoorAheadCells"/> cells.</summary>
@@ -661,11 +693,23 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             {
                 var target = _resolved.Label;
                 var portal = _resolved.ViaPortal;
-                _resolver.Resolve(GameController, _book, "transition:", _areaRaw, _resolved);
-                _resolved.ViaPortal = portal;   // a portal still beats walking out of the arena first
-                _resolved.Label = $"Way out ({target} is not reachable from here)";
-                if (_resolved.Goals.Count == 0) _resolved.Why = $"cut off from '{target}' and no exit seen on this part of the area";
-                spec = "exit-from:" + spec;
+                // A closed door blocks the pathfinding grid (2026-10-11 Venom Crypts boss room after a HUD restart: the
+                // route offered a "way out" while the door to the Jungle Ruins exit was right there): open it first.
+                _resolver.Resolve(GameController, _book, "click:MiscellaneousObjects/Door", _areaRaw, _resolved);
+                ApplyStepFilters(new RouteStep { Within = DoorCutOffCells }, cell);
+                if (_resolved.Goals.Count > 0)
+                {
+                    _resolved.Label = $"Open the door (on the way to {target})";
+                    spec = "door-for:" + spec;
+                }
+                else
+                {
+                    _resolver.Resolve(GameController, _book, "transition:", _areaRaw, _resolved);
+                    _resolved.ViaPortal = portal;   // a portal still beats walking out of the arena first
+                    _resolved.Label = $"Way out ({target} is not reachable from here)";
+                    if (_resolved.Goals.Count == 0) _resolved.Why = $"cut off from '{target}' and no exit seen on this part of the area";
+                    spec = "exit-from:" + spec;
+                }
             }
         }
         if (_resolved.Goals.Count == 0)
