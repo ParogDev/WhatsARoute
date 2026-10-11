@@ -628,6 +628,9 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         foreach (var e in GameController.EntityListWrapper.OnlyValidEntities)
         {
             if (e.Type != EntityType.Monster || !e.IsAlive || !e.IsHostile || e.Rarity != MonsterRarity.Unique) continue;
+            // Engaged only: a dormant boss (Zicoatl's statue at the Large Soul Core before it is clicked, 2026-10-11) is
+            // alive at full life and hid the marker on the thing to click.
+            if (e.GetComponent<Life>() is not { } life || life.CurHP >= life.MaxHP) continue;
             if (e.GetComponent<Positioned>() is not { } p) continue;
             if (Math.Max(Math.Abs(p.GridPos.X - cell.x), Math.Abs(p.GridPos.Y - cell.y)) <= BossFightCells) { fight = true; break; }
         }
@@ -1050,7 +1053,10 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             if (Settings.Debug.ShowUiMask) _mask.DrawOutlines();
         }
         if (Settings.Debug.ShowStatus) DrawStatus();
-        if (_bossFight) return;   // the card stays (it says so); nothing in the world while you fight
+        // A boss fight hides the ribbon and the door marker; a thing to click that is not a monster keeps its marker (the
+        // user, 2026-10-11: "If it's clickable, you highlight it for me ... text only is reserved for when we can't give
+        // any directions").
+        if (_bossFight && (_goalEntity is not { IsValid: true } ge || ge.Type == EntityType.Monster)) return;
         var pr = _playerRender;
         if (pr == null) return;
 
@@ -1093,9 +1099,9 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
 
         var bg = ImGui.GetBackgroundDrawList();
         if (avoidUi) _mask.Begin(bg);
-        if (_frame.Ready)
+        if (_frame.Ready && !_bossFight)
             _renderer.Draw(_frame, _edges, Settings, m, half, player, goal, near, fCore, fGlow, open, open ? largeMap.MapCenter : default, open ? largeMap.MapScale : 0, time);
-        if (_doorAhead is { IsValid: true, IsTargetable: true } door && _doorRender is { } dr && Settings.World.ShowGoalMarker.Value)
+        if (!_bossFight && _doorAhead is { IsValid: true, IsTargetable: true } door && _doorRender is { } dr && Settings.World.ShowGoalMarker.Value)
         {
             var dl = ImGui.GetBackgroundDrawList();
             var p = dr.Pos;
