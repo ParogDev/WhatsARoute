@@ -28,9 +28,10 @@ public sealed class FeedbackDto
 }
 
 /// <summary>
-/// The player-agent loop's channel out: feedback.jsonl in the live folder (next to route.live.json, outside git). The
-/// player's presses and the route's own trace (what changed, when) append one line each; the agent waits on the file
-/// and answers by writing route.live.json, whose Message shows under the card. Rare events, so a synchronous append.
+/// The local log of the player-agent loop: feedback.jsonl in the live folder (next to route.live.json, outside git). The
+/// player's presses and the route's own trace (what changed, when) append one line each. Delivery goes through the AI
+/// Bridge (AiBridgeLink: "feedback" and "route" events, claimed by the MCP's dispatcher); this file is the record, and
+/// the fallback when the bridge is absent (tools/feedback-wait.sh still waits on it). Rare events, so a synchronous append.
 /// </summary>
 public sealed class FeedbackLog
 {
