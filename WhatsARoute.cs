@@ -64,7 +64,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private string _targetSpec = "";
     private int _stepIndex = -1;
     private int _stepShift;                     // hotkey nudges in this area
-    private readonly HashSet<int> _reachedSteps = new();
+    private readonly HashSet<string> _reachedSteps = new();   // StepKey of steps done this area visit
     private readonly Dictionary<string, int> _quests = new();   // open quest id -> state id
     private double _nextQuests;
     private QuestObjective? _questObj;
@@ -131,9 +131,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private void ReloadRoute()
     {
         _book.Load(DataDir, LiveDir);
-        // Reached steps are indexes into the area's list, which an edit can reorder (2026-10-11 Sanctum: a new first step
-        // inherited "reached" from the old one and was skipped). Kills (_deadSeen) are kept: they are not indexes.
-        _reachedSteps.Clear();
+        // Reached steps are kept: they are keyed by what the step is (StepKey), so an edit that reorders or inserts steps
+        // neither loses them nor hands "reached" to another step.
         _goalSig = ""; _nextResolve = 0; _nextQuests = 0;
         var what = _book.LiveError ?? _book.RouteError ?? _book.LiveMessage
             ?? (_book.LiveAreas + _book.LiveQuests > 0 ? $"Route updated (live: {_book.LiveAreas} areas, {_book.LiveQuests} quest objectives)" : "Route updated");
@@ -368,7 +367,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         if (_stepIndex >= 0 && _cells.Count <= 4 && _blockedField == null)   // not at the way out of a cut-off part
         {
             var steps = _book.StepsFor(_areaRaw);
-            if (_stepIndex >= steps.Count || !steps[_stepIndex].SkipIfNone) _reachedSteps.Add(_stepIndex);
+            if (_stepIndex < steps.Count && !steps[_stepIndex].SkipIfNone) _reachedSteps.Add(StepKey(steps[_stepIndex]));
         }
     }
 
@@ -581,12 +580,18 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
 
     private bool StepDone(int i, RouteStep s)
     {
-        if (_reachedSteps.Contains(i) || (s.DoneFlag != null && _flags.TryGetValue(s.DoneFlag, out var v) && v)) return true;
-        if (s.UntilDead is { Length: > 0 } boss && SeenDead(boss)) { _reachedSteps.Add(i); return true; }
+        if (_reachedSteps.Contains(StepKey(s)) || (s.DoneFlag != null && _flags.TryGetValue(s.DoneFlag, out var v) && v)) return true;
+        if (s.UntilDead is { Length: > 0 } boss && SeenDead(boss)) { _reachedSteps.Add(StepKey(s)); return true; }
         if (s.DoneWhenSeen is not { Entity.Length: > 0 } dw || !SeenEnough(dw)) return false;
-        _reachedSteps.Add(i);
+        _reachedSteps.Add(StepKey(s));
         return true;
     }
+
+    /// <summary>
+    /// What a step is, for "reached": its target and label, not its index. 2026-10-11 Sanctum: indexes made a live edit
+    /// that inserted a step hand the old first step's "reached" to the new one, which was then skipped.
+    /// </summary>
+    private static string StepKey(RouteStep s) => s.Target + "\u0001" + s.Label;
 
     /// <summary>
     /// A monster whose path contains <paramref name="part"/> loaded and dead (2026-10-11 Oubliette: after Blackjaw died the
@@ -1186,7 +1191,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
 
     /// <summary>A step already reached or flagged done, from what Tick recorded: no entity scan (StepDone's SeenEnough) on the render path.</summary>
     private bool StepReached(int i, RouteStep s) =>
-        _reachedSteps.Contains(i) || (s.DoneFlag != null && _flags.TryGetValue(s.DoneFlag, out var v) && v);
+        _reachedSteps.Contains(StepKey(s)) || (s.DoneFlag != null && _flags.TryGetValue(s.DoneFlag, out var v) && v);
 
     private string GetStateJson()
     {
