@@ -219,6 +219,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         _lastCell = (int.MinValue, 0); _lastFieldUsed = null; _lastEdgesUsed = null;
         _stepShift = 0; _stepIndex = -1; _reachedSteps.Clear(); _nextResolve = 0; _nextFlags = 0;
         _goalEntity = null; _goalRender = null; _frame.HasGoalBox = false; _playerRender = null; _chosenStop = null; _stopShown = -1;
+        _doors.Clear(); _doorAhead = null; _doorRender = null;
         _fresh.Reset();
         _resolver.ResetArea();
         _portalKey = GameKeys.Binding(GameKeys.Config(), "use_portal_scroll");   // the binding is re-read per area (the player may rebind), the path found once
@@ -299,6 +300,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             _scanUs = _scanUs * 0.8 + 0.2 * Stopwatch.GetElapsedTime(st).TotalMicroseconds;
             ResolveObjective(grid, cell);
             _resolver.Sightings.FlushIfIdle(DataDir, now);
+            ScanDoors();
+            FindDoorAhead();
         }
 
         var field = _field;
@@ -354,6 +357,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         }
         _frame.Ready = true;
         SetGoalEntity(_cells[^1]);
+        FindDoorAhead();
         _replanUs = Stopwatch.GetElapsedTime(t0).TotalMicroseconds;
 
         // A step without a quest flag counts as done once you stand on its goal. SkipIfNone steps are stateless and
@@ -363,6 +367,40 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             var steps = _book.StepsFor(_areaRaw);
             if (_stepIndex >= steps.Count || !steps[_stepIndex].SkipIfNone) _reachedSteps.Add(_stepIndex);
         }
+    }
+
+    // A closed door on the way (2026-10-11 Venom Crypts, the user: "it should make me click the door here"): doors are
+    // walkable in the pathfinding grid, so the route runs straight through them. Closed = targetable.
+    private const int DoorAheadCells = 160, DoorNearPath = 5;
+    private readonly List<(Entity e, Render r)> _doors = new();
+    private Entity? _doorAhead;
+    private Render? _doorRender;
+    private double _doorAppearedAt;
+
+    /// <summary>Closed doors loaded now (every resolve, 2 Hz): a path test on the entity list, no component reads but Render.</summary>
+    private void ScanDoors()
+    {
+        _doors.Clear();
+        foreach (var e in GameController.EntityListWrapper.OnlyValidEntities)
+            if (e.IsTargetable && e.Path is { } p && p.EndsWith("/Door", StringComparison.Ordinal) && e.GetComponent<Render>() is { } r)
+                _doors.Add((e, r));
+    }
+
+    /// <summary>The first closed door within <see cref="DoorNearPath"/> cells of the path's next <see cref="DoorAheadCells"/> cells.</summary>
+    private void FindDoorAhead()
+    {
+        Entity? found = null; Render? fr = null;
+        if (_doors.Count > 0 && _frame.Ready)
+            for (var i = 0; i < _cells.Count && i < DoorAheadCells && found == null; i += 2)
+                foreach (var (e, r) in _doors)
+                {
+                    if (!e.IsValid || !e.IsTargetable) continue;
+                    var dx = r.Pos.X / AreaGrid.GridToWorld - _cells[i].x;
+                    var dy = r.Pos.Y / AreaGrid.GridToWorld - _cells[i].y;
+                    if (dx * dx + dy * dy <= DoorNearPath * DoorNearPath) { found = e; fr = r; break; }
+                }
+        if (found?.Address != _doorAhead?.Address) { _doorAppearedAt = _clock.Elapsed.TotalSeconds; if (found != null) Trace("door", found.Path); }
+        _doorAhead = found; _doorRender = fr;
     }
 
     /// <summary>The goal entity nearest <paramref name="cell"/> (the path's end, else the player) gets the in-world marker.</summary>
@@ -775,6 +813,15 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         if (avoidUi) _mask.Begin(bg);
         if (_frame.Ready)
             _renderer.Draw(_frame, _edges, Settings, m, half, player, goal, near, open, open ? largeMap.MapCenter : default, open ? largeMap.MapScale : 0, time);
+        if (_doorAhead is { IsValid: true, IsTargetable: true } door && _doorRender is { } dr && Settings.World.ShowGoalMarker.Value)
+        {
+            var dl = ImGui.GetBackgroundDrawList();
+            var p = dr.Pos;
+            var g = _grid;
+            var z = g != null && g.InBounds((int)(p.X / AreaGrid.GridToWorld), (int)(p.Y / AreaGrid.GridToWorld)) ? g.HeightAt(p.X / AreaGrid.GridToWorld, p.Y / AreaGrid.GridToWorld) : p.Z;
+            _markers.DrawEntity(dl, m, half, disp, new Vector3(p.X, p.Y, z), MathF.Max(dr.Bounds.X, dr.Bounds.Y) * 0.8f, dr.Bounds.Z * 2f,
+                "Open the door", core, glow, time, _doorAppearedAt, 1f);
+        }
         if (showMarker)
         {
             var dl = ImGui.GetBackgroundDrawList();
@@ -870,7 +917,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 ViaTravelMap = _resolved.ViaTravelMap,
                 ViaPortal = _resolved.ViaPortal,
                 PortalKey = _portalKey,
-                TravelHub = _areaRaw.StartsWith("G2_", StringComparison.OrdinalIgnoreCase) ? "the Desert Map" : "the waypoint",
+                DoorAhead = _doorAhead is { IsValid: true, IsTargetable: true },
+                TravelHub =_areaRaw.StartsWith("G2_", StringComparison.OrdinalIgnoreCase) ? "the Desert Map" : "the waypoint",
                 TravelMapOpen = _map.Open,
                 StopChosen = _chosenStop != null,
                 PathLen = _pathLen,
