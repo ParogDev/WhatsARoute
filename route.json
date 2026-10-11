@@ -20,6 +20,7 @@
   "Areas": {
     "G3_3": [
       { "Target": "radar:Mighty Silverfist (+2 Passive)", "Label": "Mighty Silverfist (+2 Passive)", "Optional": true },
+      { "Target": "radar:Monkeee (Passive)", "Label": "Side quest: the monkey (Passive)", "Optional": true },
       { "Target": "radar:Infested Barrens", "Label": "Infested Barrens" }
     ],
     "G3_4": [
@@ -28,6 +29,7 @@
       { "Target": "radar:Jungle Ruins", "Label": "Back to the Jungle Ruins" }
     ],
     "G3_2_1": [
+      { "Target": "radar:The Azak Bog", "Label": "Side quest: The Azak Bog (Ignagduk, +30 Spirit)", "Optional": true },
       { "Target": "radar:Chimeral Wetlands", "Label": "Chimeral Wetlands" }
     ],
     "G3_5": [

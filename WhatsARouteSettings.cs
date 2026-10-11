@@ -28,8 +28,8 @@ public sealed class RouteSettings
         "checkpoint | waypoint | transition[:name] | tile:<pattern> | radar:<Radar target name> | entity:<path part>")]
     public TextNode ManualTarget { get; set; } = new("transition");
 
-    [Menu("Include optional steps", "Off: optional rewards (passives, gems, resistances) are skipped for speed")]
-    public ToggleNode IncludeOptional { get; set; } = new(false);
+    [Menu("Include optional steps", "Side quests and rewards (passives, spirit, resistances, gems). Off: skipped for speed")]
+    public ToggleNode IncludeOptional { get; set; } = new(true);
 
     [Menu("Pick up quest items", "A quest item on the ground near you (a boss drop, a found item) becomes the objective until you pick it up")]
     public ToggleNode PickUpQuestItems { get; set; } = new(true);
