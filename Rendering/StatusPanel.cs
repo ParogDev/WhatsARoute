@@ -32,7 +32,8 @@ public sealed class StatusPanel
         public string? AreaWhy;         // why the area grid is not there, raw
         public bool GridReady, FieldReady, PathReady, Blocked, FromMemory, HasTravelTo, ViaTravelMap, ViaPortal, TravelMapOpen, StopChosen;
         public string? PortalKey;       // the player's own portal binding ("Shift+T"), from the game config
-        public string? TravelHub;       // what to take in town after the portal: "the Desert Map" (Act 2), else "the waypoint"
+        public bool DoorAhead;          // a closed door on the path ahead: click it
+        public string? TravelHub;      // what to take in town after the portal: "the Desert Map" (Act 2), else "the waypoint"
         public float PathLen;           // world units along the whole route
         public int PathCells;
         public string? Detail;          // the dev dump, when wanted (drawn under the card, wrapped)
@@ -214,6 +215,7 @@ public sealed class StatusPanel
             return i.ViaTravelMap ? ("In another area: take the Desert Map", Tone.Info) : ("In another area: take this exit", Tone.Info);
         }
         if (!i.FieldReady || !i.PathReady) return ("Finding the way", Tone.Busy);
+        if (i.DoorAhead) return ("Open the door ahead", Tone.Info);
         if (i.PathCells <= 4) return ("", Tone.Normal);
         if (i.FromMemory) return ("Seen earlier this visit: leading you back", Tone.Info);
         return ("", Tone.Normal);
@@ -277,6 +279,6 @@ public sealed class StatusPanel
         && a.StepIndex == b.StepIndex && a.StepCount == b.StepCount && a.DoneMask == b.DoneMask
         && string.Equals(a.Note, b.Note, StringComparison.Ordinal) && string.Equals(a.Why, b.Why, StringComparison.Ordinal) && string.Equals(a.AreaWhy, b.AreaWhy, StringComparison.Ordinal)
         && a.GridReady == b.GridReady && a.FieldReady == b.FieldReady && a.PathReady == b.PathReady && a.Blocked == b.Blocked && a.FromMemory == b.FromMemory
-        && a.HasTravelTo == b.HasTravelTo && a.ViaTravelMap == b.ViaTravelMap && a.ViaPortal == b.ViaPortal && string.Equals(a.PortalKey, b.PortalKey, StringComparison.Ordinal) && a.TravelMapOpen == b.TravelMapOpen && a.StopChosen == b.StopChosen
+        && a.HasTravelTo == b.HasTravelTo && a.ViaTravelMap == b.ViaTravelMap && a.ViaPortal == b.ViaPortal && string.Equals(a.PortalKey, b.PortalKey, StringComparison.Ordinal) && a.TravelMapOpen == b.TravelMapOpen && a.StopChosen == b.StopChosen && a.DoorAhead == b.DoorAhead
         && (a.PathCells <= 4) == (b.PathCells <= 4) && string.Equals(a.Detail, b.Detail, StringComparison.Ordinal);
 }
