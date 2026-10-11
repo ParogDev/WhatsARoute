@@ -884,6 +884,10 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
 
     private void RenderBody()
     {
+        // The overlay is a topmost window: with another window in front of the game, everything drawn here lands on
+        // that window. IsForeGroundCache is the HUD's per-frame check (game or HUD overlay in front, or the core's
+        // ForceForeground), so the HUD menu keeps showing the route.
+        if (!GameController.IsForeGroundCache) return;
         if (Settings.Route.NextStep.PressedOnce()) { _stepShift++; _nextResolve = 0; }
         if (Settings.Route.PreviousStep.PressedOnce()) { _stepShift--; _nextResolve = 0; }
         if (Settings.Route.Feedback.PressedOnce()) _feedbackOpen = !_feedbackOpen;
