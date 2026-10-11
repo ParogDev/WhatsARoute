@@ -241,7 +241,7 @@ public sealed class TargetResolver
                         if (string.Equals(t.TargetType, "Entity", StringComparison.OrdinalIgnoreCase))
                             Entities(gc, r, e => RouteBook.Like(e.Path, alt.Name), MayBeMonster(alt.Name));
                         else
-                            Tiles(gc, areaRawName, alt.Name, r);
+                            Tiles(gc, areaRawName, alt.Name, r, alt.Rooms ?? t.Rooms);
                         if (r.Goals.Count > before) break;
                     }
                 }
@@ -360,7 +360,12 @@ public sealed class TargetResolver
 
     private static bool IsTargetable(Entity e) => e.GetComponent<Targetable>() is not { } t || t.isTargetable;
 
-    private void Tiles(GameController gc, string areaRawName, string pattern, Result r)
+    /// <summary>
+    /// Tiles matching <paramref name="pattern"/>; with <paramref name="rooms"/> (Radar's Rooms), only those inside a room of
+    /// the area graph whose .arm path matches one of them, as Radar does. 2026-10-11 Venom Crypts: the vial row is
+    /// Name "*" in Rooms "*boss*", and without the room filter every tile was a goal (4725, one at the entrance).
+    /// </summary>
+    private void Tiles(GameController gc, string areaRawName, string pattern, Result r, string[]? rooms = null)
     {
         if (_tiles == null || _areaKey != areaRawName)
         {
@@ -370,15 +375,34 @@ public sealed class TargetResolver
         }
         if (_tiles == null) { r.Why = "IngameData.Tiles is null"; return; }
         if (!pattern.Contains('*') && !pattern.Contains('?')) pattern = "*" + pattern + "*";
+        var key = rooms is { Length: > 0 } ? pattern + "#" + string.Join(",", rooms) : pattern;
         // Tiles don't change within an area: match each pattern once (a G2_6 scan of 10,989 tiles x 2 regexes was
         // ~1.9 ms, twice a second, mostly for a Radar fallback that matched nothing).
-        if (!_tileMatches.TryGetValue(pattern, out var cells))
+        if (!_tileMatches.TryGetValue(key, out var cells))
         {
             cells = new List<(int, int)>();
+            List<(int x0, int y0, int x1, int y1)>? boxes = null;
+            if (rooms is { Length: > 0 })
+            {
+                boxes = new();
+                try
+                {
+                    foreach (var graph in gc.IngameState.Data.AreaGraphs)
+                    foreach (var room in graph.Rooms)
+                        if (room.Name is { } n && rooms.Any(p => RouteBook.Like(n, p.Contains('*') ? p : "*" + p + "*")))
+                            boxes.Add((room.MinCoord.X * TileCells, room.MinCoord.Y * TileCells, room.MaxCoord.X * TileCells, room.MaxCoord.Y * TileCells));
+                }
+                catch (Exception ex) { r.Why = $"IngameData.AreaGraphs (Radar rooms {string.Join(",", rooms)}): {ex.Message}"; return; }
+                if (boxes.Count == 0) { r.Why = $"no room matches '{string.Join(",", rooms)}' in {areaRawName}'s area graph"; _tileMatches[key] = cells; return; }
+            }
             foreach (var t in _tiles)
-                if (RouteBook.Like(t.Name, pattern) || RouteBook.Like(t.Path, pattern))
-                    cells.Add((t.Coordinate.X, t.Coordinate.Y));
-            _tileMatches[pattern] = cells;
+            {
+                if (!(RouteBook.Like(t.Name, pattern) || RouteBook.Like(t.Path, pattern))) continue;
+                int x = t.Coordinate.X, y = t.Coordinate.Y;
+                if (boxes != null && !boxes.Any(b => x >= b.x0 && x < b.x1 && y >= b.y0 && y < b.y1)) continue;
+                cells.Add((x, y));
+            }
+            _tileMatches[key] = cells;
         }
         r.Goals.AddRange(cells);
     }
