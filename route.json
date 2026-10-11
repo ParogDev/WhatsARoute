@@ -37,6 +37,7 @@
       { "Target": "transition:G3_6_1", "Label": "Jiquani's Machinarium" }
     ],
     "G3_6_1": [
+      { "Target": "click:3_6_1/Objects/KeyPedestal", "Carrying": "VaalKeyGem", "SkipIfNone": true, "Label": "Place the Soul Core in the Stone Altar", "Note": "Verified live 2026-10-11: cores are VaalKeyGem<n> in MainInventory once picked up; the quest stays at 43 while you carry the second one, so the inventory decides. Used altars turn untargetable (KeyPedestal_Entrance)" },
       { "Target": "radar:The Oubliette (10% Fire Res)", "Label": "The Oubliette (10% Fire Res)", "Optional": true },
       { "Target": "radar:Jiquani's Sanctum", "Label": "Keep exploring: the next Soul Core shows when it loads" }
     ],
