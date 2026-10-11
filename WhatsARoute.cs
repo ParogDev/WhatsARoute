@@ -608,11 +608,36 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
 
     private readonly Dictionary<DoneWhenSeenRule, bool> _seenCache = new();
 
+    private const string QuestItemSpec = "item:/QuestItems/";
+    private const int QuestItemCells = 150;
+
+    /// <summary>A quest item (Metadata/Items/QuestItems/...) on the ground within <see cref="QuestItemCells"/>, resolved into _resolved and named.</summary>
+    private bool QuestItemNear((int x, int y) cell)
+    {
+        _resolver.Resolve(GameController, _book, QuestItemSpec, _areaRaw, _resolved);
+        if (_resolved.Goals.Count == 0) return false;
+        ApplyStepFilters(new RouteStep { Within = QuestItemCells }, cell);
+        if (_resolved.Goals.Count == 0) return false;
+        var name = _resolved.GoalEntities.Count > 0 ? _resolved.GoalEntities[0].Entity.GetComponent<WorldItem>()?.ItemEntity?.GetComponent<Base>()?.Name : null;
+        _resolved.Label = $"Pick up {(string.IsNullOrEmpty(name) ? "the quest item" : name)}";
+        _resolved.Why = null;
+        return true;
+    }
+
     private void ResolveObjective(AreaGrid grid, (int x, int y) cell)
     {
         string spec;
         var steps = _book.StepsFor(_areaRaw);
         var q = Settings.Route.Mode.Value == "Route" ? _questObj : null;
+        if (Settings.Route.Mode.Value == "Route" && Settings.Route.PickUpQuestItems.Value && QuestItemNear(cell))
+        {
+            // A quest item on the ground beats the plan (2026-10-11, the user after Xyclucian: "detect quest items on the
+            // ground in general and ask me to pick them up"). Gone from the ground = picked up, and the plan resumes.
+            _stepIndex = -1;
+            spec = QuestItemSpec;
+            _targetSpec = spec;
+            goto Resolved;
+        }
         if (q != null && !RouteBook.LikeAny(_areaRaw, q.Area))
         {
             _stepIndex = -1;
