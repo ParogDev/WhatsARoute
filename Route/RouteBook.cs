@@ -55,11 +55,17 @@ public sealed class QuestObjective
 {
     public string Quest { get; set; } = "";
     public int[]? States { get; set; }
+    /// <summary>Area pattern, or several as "G3_2_1|G3_5" (travel goes to the first while you are in none of them).</summary>
     public string Area { get; set; } = "";
     public string? Target { get; set; }
     public string? Label { get; set; }
     public bool Optional { get; set; }
     public string? Note { get; set; }
+    /// <summary>
+    /// The way there from areas with no exit to <see cref="Area"/>: current-area pattern to a target spec (from town
+    /// "transition:G3_3" rather than a waypoint not unlocked yet). Areas not listed travel as usual.
+    /// </summary>
+    public Dictionary<string, string>? Via { get; set; }
 }
 
 public sealed class RouteFile
@@ -69,6 +75,8 @@ public sealed class RouteFile
     public List<QuestObjective> Quests { get; set; } = new();
     /// <summary>Area RawName (Radar-style pattern, * and ?) to its ordered steps.</summary>
     public Dictionary<string, List<RouteStep>> Areas { get; set; } = new();
+    /// <summary>Live file only: a line for the player, shown under the card when the file changes (the agent's reply).</summary>
+    public string? Message { get; set; }
 }
 
 /// <summary>Radar's targets.json row (read from the sibling Radar plugin when installed; never copied).</summary>
@@ -83,7 +91,10 @@ public sealed class RadarTarget
 
 /// <summary>
 /// The routes: our own route.json (ordered steps per area), plus Radar's targets.json as a dictionary of named
-/// places per area ("radar:The Halani Gates"). Loaded on start and on the Reload button.
+/// places per area ("radar:The Halani Gates"). Loaded on start, on the Reload button, and whenever route.json or the
+/// live file is written. The live file (route.live.json in the live folder, outside git) is laid over route.json: its
+/// areas replace route.json's areas of the same key and its quests come first. The agent edits it while you play; the
+/// fixes move into route.json by PR afterwards.
 /// </summary>
 public sealed class RouteBook
 {
@@ -94,10 +105,54 @@ public sealed class RouteBook
     public string? RouteError { get; private set; }
     public string? RadarError { get; private set; }
     public string? RadarPath { get; private set; }
+    public string? LivePath { get; private set; }
+    public string? LiveError { get; private set; }
+    /// <summary>The live file's Message at the last load (null without one).</summary>
+    public string? LiveMessage { get; private set; }
+    public int LiveAreas { get; private set; }
+    public int LiveQuests { get; private set; }
 
-    public void Load(string pluginDir)
+    private string _routePath = "";
+    private DateTime _routeStamp, _liveStamp;
+
+    /// <summary>True when route.json or the live file was written since the last load (two stat calls).</summary>
+    public bool Changed() => Stamp(_routePath) != _routeStamp || (LivePath != null && Stamp(LivePath) != _liveStamp);
+
+    private static DateTime Stamp(string path)
     {
-        var routePath = Path.Combine(pluginDir, "route.json");
+        try { return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue; }
+        catch { return DateTime.MinValue; }
+    }
+
+    public void Load(string pluginDir, string? liveDir = null)
+    {
+        LoadRoute(pluginDir);
+        LoadLive(liveDir);
+        LoadRadar(pluginDir);
+    }
+
+    private void LoadLive(string? liveDir)
+    {
+        LiveError = null; LiveMessage = null; LiveAreas = 0; LiveQuests = 0;
+        LivePath = string.IsNullOrWhiteSpace(liveDir) ? null : Path.Combine(liveDir, "route.live.json");
+        if (LivePath == null) return;
+        _liveStamp = Stamp(LivePath);
+        if (!File.Exists(LivePath)) return;
+        RouteFile? live;
+        try { live = JsonConvert.DeserializeObject<RouteFile>(File.ReadAllText(LivePath)); }
+        catch (Exception ex) { LiveError = $"route.live.json: {ex.Message}"; return; }   // route.json alone still routes
+        if (live == null) return;
+        foreach (var (key, steps) in live.Areas) Route.Areas[key] = steps;
+        Route.Quests.InsertRange(0, live.Quests);
+        LiveAreas = live.Areas.Count;
+        LiveQuests = live.Quests.Count;
+        LiveMessage = live.Message;
+    }
+
+    private void LoadRoute(string pluginDir)
+    {
+        var routePath = _routePath = Path.Combine(pluginDir, "route.json");
+        _routeStamp = Stamp(routePath);
         try
         {
             Route = File.Exists(routePath) ? JsonConvert.DeserializeObject<RouteFile>(File.ReadAllText(routePath)) ?? new RouteFile() : new RouteFile();
@@ -108,7 +163,10 @@ public sealed class RouteBook
             Route = new RouteFile();
             RouteError = $"route.json: {ex.Message}";
         }
+    }
 
+    private void LoadRadar(string pluginDir)
+    {
         RadarPath = Path.GetFullPath(Path.Combine(pluginDir, "..", "Radar", "targets.json"));
         try
         {
@@ -133,6 +191,18 @@ public sealed class RouteBook
 
     public IEnumerable<RadarTarget> RadarTargetsFor(string areaRawName) =>
         Radar.Where(kv => Like(areaRawName, kv.Key)).SelectMany(kv => kv.Value);
+
+    /// <summary><see cref="Like"/> against any of "a|b|c" (a quest objective whose area steps span several areas).</summary>
+    public static bool LikeAny(string? s, string patterns)
+    {
+        if (!patterns.Contains('|')) return Like(s, patterns);
+        foreach (var p in patterns.Split('|'))
+            if (Like(s, p)) return true;
+        return false;
+    }
+
+    /// <summary>The first of "a|b|c": where travel goes when you are in none of them.</summary>
+    public static string FirstOf(string patterns) => patterns.Split('|')[0];
 
     public static bool Like(string? s, string pattern) =>
         s != null && LikeCache.GetOrAdd(pattern, p => new Regex("^" + Regex.Escape(p).Replace(@"\*", ".*").Replace(@"\?", ".") + "$",

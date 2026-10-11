@@ -107,11 +107,105 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     public override bool Initialise()
     {
         Name = "Whats A Route";
-        _book.Load(DataDir);
-        Settings.Route.ReloadRoute.OnPressed = () => { _book.Load(DataDir); _goalSig = ""; _nextResolve = 0; };
+        _feedback.Open(LiveDir);
+        _book.Load(DataDir, LiveDir);
+        Settings.Route.ReloadRoute.OnPressed = ReloadRoute;
         GameController.PluginBridge.SaveMethod("WhatsARoute.GetState", (Func<string>)GetStateJson);
         return true;
     }
+
+    // ── The live loop: the agent edits route.live.json, the player answers with the feedback key ──
+
+    private readonly FeedbackLog _feedback = new();
+    private double _nextLiveCheck;
+    private string? _toast;                      // the line above the card: the agent's reply, or "sent"
+    private double _toastUntil;
+    private bool _feedbackOpen;
+    private string _feedbackNote = "";
+    private string _lastObjective = "";
+
+    /// <summary>The live folder: the setting, else %LOCALAPPDATA%\Hexile\WhatsARoute (outside git, writable by the agent).</summary>
+    private string LiveDir => Settings.Route.LiveFolder.Value is { Length: > 0 } f ? f
+        : System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Hexile", "WhatsARoute");
+
+    private void ReloadRoute()
+    {
+        _book.Load(DataDir, LiveDir);
+        _goalSig = ""; _nextResolve = 0; _nextQuests = 0;
+        var what = _book.LiveError ?? _book.RouteError ?? _book.LiveMessage
+            ?? (_book.LiveAreas + _book.LiveQuests > 0 ? $"Route updated (live: {_book.LiveAreas} areas, {_book.LiveQuests} quest objectives)" : "Route updated");
+        Toast(what, _book.LiveMessage != null || _book.LiveError != null ? 12 : 4);
+        Trace("route-reloaded", what);
+    }
+
+    private void Toast(string text, double seconds) { _toast = text; _toastUntil = _clock.Elapsed.TotalSeconds + seconds; }
+
+    private void Trace(string evt, string? note = null, List<string>? quests = null) =>
+        _feedback.Write(new FeedbackDto
+        {
+            Kind = "trace", Event = evt, Note = note, Area = _areaRaw, AreaName = _areaName, Target = _targetSpec, Label = _resolved.Label,
+            StepIndex = _stepIndex, PlayerGrid = _lastCell.x == int.MinValue ? null : [_lastCell.x, _lastCell.y], Quests = quests,
+        });
+
+    private void SendFeedback(string verdict)
+    {
+        RouteStateDto? state = null;
+        try { state = BuildState(); state.MapPath.Clear(); } catch { /* the verdict still goes out */ }
+        var seq = _feedback.Write(new FeedbackDto
+        {
+            Kind = "feedback", Event = verdict, Note = _feedbackNote.Trim() is { Length: > 0 } n ? n : null, Area = _areaRaw, AreaName = _areaName,
+            Target = _targetSpec, Label = _resolved.Label, StepIndex = _stepIndex,
+            PlayerGrid = _lastCell.x == int.MinValue ? null : [_lastCell.x, _lastCell.y], State = state,
+        });
+        Toast(seq < 0 ? $"Could not write feedback: {_feedback.Why}" : verdict == "works" ? $"Thanks, noted as working (#{seq})" : $"Sent to Claude (#{seq}): a fix will show here", seq < 0 ? 12 : 6);
+        _feedbackNote = "";
+        _feedbackOpen = false;
+    }
+
+    /// <summary>The feedback panel under the card: one click per verdict, an optional note (typed while the HUD has focus).</summary>
+    private void DrawFeedback()
+    {
+        if (!_feedbackOpen) return;
+        ImGui.SetNextWindowPos(new Vector2(Settings.Debug.StatusX.Value, Settings.Debug.StatusY.Value + 110), ImGuiCond.Appearing);
+        ImGui.SetNextWindowBgAlpha(0.92f);
+        if (!ImGui.Begin("Route feedback##WhatsARoute", ref _feedbackOpen, ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoCollapse))
+        {
+            ImGui.End();
+            return;
+        }
+        ImGui.TextDisabled($"{_areaName}  ·  {(_resolved.Label.Length > 0 ? _resolved.Label : _targetSpec)}");
+        if (ImGui.Button("Works")) SendFeedback("works");
+        ImGui.SameLine();
+        if (ImGui.Button("Wrong place")) SendFeedback("wrong-place");
+        ImGui.SameLine();
+        if (ImGui.Button("Not advancing")) SendFeedback("not-advancing");
+        ImGui.SameLine();
+        if (ImGui.Button("Missing step")) SendFeedback("missing-step");
+        ImGui.SetNextItemWidth(360);
+        if (ImGui.InputTextWithHint("##note", "what should it do? (Enter sends)", ref _feedbackNote, 300, ImGuiInputTextFlags.EnterReturnsTrue)
+            && _feedbackNote.Trim().Length > 0)
+            SendFeedback("note");
+        ImGui.End();
+    }
+
+    /// <summary>The agent's reply or the "sent" line, just above the card; fades out.</summary>
+    private void DrawToast(double now)
+    {
+        if (_toast == null || now >= _toastUntil) return;
+        var a = (float)Math.Clamp(_toastUntil - now, 0, 1);
+        var dl = ImGui.GetBackgroundDrawList();
+        var font = ImGui.GetFont();
+        var size = ImGui.GetFontSize();
+        var wrap = Settings.Debug.StatusWidth.Value - 16f;
+        var ts = font.CalcTextSizeA(size, float.MaxValue, wrap, _toast);
+        var pos = new Vector2(Settings.Debug.StatusX.Value, Settings.Debug.StatusY.Value - ts.Y - 18);
+        dl.AddRectFilled(pos, pos + ts + new Vector2(16, 12), Glow.Col(new Vector3(0.05f, 0.09f, 0.12f), 0.9f * a), 5f);
+        dl.AddRect(pos, pos + ts + new Vector2(16, 12), Glow.Col(new Vector3(0.45f, 0.75f, 0.95f), 0.6f * a), 5f, ImDrawFlags.None, 1f);
+        dl.AddText(font, size, pos + new Vector2(8, 6), Glow.Col(new Vector3(0.88f, 0.94f, 0.98f), a), _toast, wrap);
+    }
+
+    /// <summary>Quest states that changed since the last read, as "QuestId:StateId text", for the trace.</summary>
+    private readonly Dictionary<string, int> _questsBefore = new();
 
     public override void OnClose() => _resolver.Sightings.Flush(DataDir);
 
@@ -130,6 +224,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         _portalKey = GameKeys.Binding(GameKeys.Config(), "use_portal_scroll");   // the binding is re-read per area (the player may rebind), the path found once
         _areaRaw = area?.Area?.RawName ?? "";
         _areaName = area?.Area?.Name ?? "";
+        _lastObjective = "";
+        Trace("area");
         _resolver.Sightings.ResetArea(_areaRaw, area?.Hash ?? 0, DataDir);   // writes the old area's sightings first
 
         var data = GameController.IngameState.Data;
@@ -172,6 +268,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     {
         if (!GameController.InGame || GameController.Player == null) { _frame.Ready = false; return; }
         var t = _clock.Elapsed.TotalSeconds;
+        if (t >= _nextLiveCheck) { _nextLiveCheck = t + 0.5; if (_book.Changed()) ReloadRoute(); }   // the agent's live edits, in half a second
         if (t >= _nextQuests) { _nextQuests = t + 1; ReadQuests(); }
         ReadTravelMap(t);   // every tick: the open check is one cached read; the node scan inside is rate-limited
         var grid = _grid;
@@ -305,12 +402,27 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private void ReadQuests()
     {
         _quests.Clear();
+        List<string>? changed = null;
         try
         {
             foreach (var (quest, state) in GameController.IngameState.IngameUi.UncompletedQuests)
-                if (quest?.Id is { } id && state != null) _quests[id] = state.QuestStateId;
+            {
+                if (quest?.Id is not { } id || state == null) continue;
+                _quests[id] = state.QuestStateId;
+                if (_questsBefore.Count > 0 && (!_questsBefore.TryGetValue(id, out var was) || was != state.QuestStateId))
+                    (changed ??= new()).Add($"{id}:{state.QuestStateId} {state.QuestStateText}");
+            }
+            if (_questsBefore.Count > 0)
+                foreach (var id in _questsBefore.Keys)
+                    if (!_quests.ContainsKey(id)) (changed ??= new()).Add($"{id}:done");
         }
         catch (Exception ex) { _why = $"IngameUi.UncompletedQuests: {ex.Message}"; }
+        if (_quests.Count > 0)
+        {
+            _questsBefore.Clear();
+            foreach (var kv in _quests) _questsBefore[kv.Key] = kv.Value;
+        }
+        if (changed != null) Trace("quest", quests: changed);
         _questObj = null;
         _altAreas.Clear();
         foreach (var q in _book.Route.Quests)
@@ -319,7 +431,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             if (!_quests.TryGetValue(q.Quest, out var st)) continue;
             if (q.States is { Length: > 0 } && Array.IndexOf(q.States, st) < 0) continue;
             if (_questObj == null) _questObj = q;
-            else _altAreas.Add(q.Area);   // other open objectives: the only other choices worth a ring on the map
+            else _altAreas.Add(RouteBook.FirstOf(q.Area));   // other open objectives: the only other choices worth a ring on the map
         }
     }
 
@@ -443,10 +555,13 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         string spec;
         var steps = _book.StepsFor(_areaRaw);
         var q = Settings.Route.Mode.Value == "Route" ? _questObj : null;
-        if (q != null && !RouteBook.Like(_areaRaw, q.Area))
+        if (q != null && !RouteBook.LikeAny(_areaRaw, q.Area))
         {
             _stepIndex = -1;
-            spec = "travel:" + q.Area;
+            spec = "travel:" + RouteBook.FirstOf(q.Area);
+            if (q.Via != null)
+                foreach (var (from, via) in q.Via)
+                    if (RouteBook.Like(_areaRaw, from)) { spec = via; break; }
         }
         else if (q?.Target is { Length: > 0 } qt)
         {
@@ -499,6 +614,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         Resolved:
         if (_stepIndex >= 0 && steps[_stepIndex].Label is { Length: > 0 } label) _resolved.Label = label;
         else if (q?.Label is { Length: > 0 } ql && spec == q.Target) _resolved.Label = ql;
+        if (spec + "|" + _resolved.Label is var objective && objective != _lastObjective) { _lastObjective = objective; Trace("objective"); }
         if (_blockedField != null)
         {
             // Still cut off from this objective: the nearest exit reachable from here (loaded or seen this visit).
@@ -599,8 +715,11 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     {
         if (Settings.Route.NextStep.PressedOnce()) { _stepShift++; _nextResolve = 0; }
         if (Settings.Route.PreviousStep.PressedOnce()) { _stepShift--; _nextResolve = 0; }
+        if (Settings.Route.Feedback.PressedOnce()) _feedbackOpen = !_feedbackOpen;
         if (!GameController.InGame) return;
         var time = _clock.Elapsed.TotalSeconds;
+        DrawFeedback();
+        DrawToast(time);
         var core = Glow.Rgb(Settings.World.PathCore.Value);
         var glow = Glow.Rgb(Settings.World.PathGlow.Value);
         if (_map.Open && _chosenStop is { } stop) DrawTravelMap(stop, core, glow, time);
@@ -751,6 +870,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 ViaTravelMap = _resolved.ViaTravelMap,
                 ViaPortal = _resolved.ViaPortal,
                 PortalKey = _portalKey,
+                TravelHub = _areaRaw.StartsWith("G2_", StringComparison.OrdinalIgnoreCase) ? "the Desert Map" : "the waypoint",
                 TravelMapOpen = _map.Open,
                 StopChosen = _chosenStop != null,
                 PathLen = _pathLen,
@@ -769,11 +889,11 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
 
     private string GetStateJson()
     {
-        try { return BuildStateJson(); }
+        try { return JsonConvert.SerializeObject(BuildState()); }
         catch (Exception ex) { return JsonConvert.SerializeObject(new RouteStateDto { Area = _areaRaw, Why = $"state: {ex.Message} (read while Tick was replanning; retry)" }); }
     }
 
-    private string BuildStateJson()
+    private RouteStateDto BuildState()
     {
         var steps = _book.StepsFor(_areaRaw);
         var grid = _grid;
@@ -826,6 +946,9 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         dto.Sightings = _resolver.Sightings.Area.Count;
         if (_resolved.FromMemory) dto.Notes.Add("goals are remembered sightings (their entities are not loaded right now)");
         if (_resolver.Sightings.Why != null) dto.Notes.Add(_resolver.Sightings.Why);
-        return JsonConvert.SerializeObject(dto);
+        if (_book.LiveError != null) dto.Notes.Add(_book.LiveError);
+        if (_book.LiveAreas + _book.LiveQuests > 0) dto.Notes.Add($"live route {_book.LivePath}: {_book.LiveAreas} areas, {_book.LiveQuests} quest objectives over route.json");
+        if (_feedback.Why != null) dto.Notes.Add(_feedback.Why);
+        return dto;
     }
 }
