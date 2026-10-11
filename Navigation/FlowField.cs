@@ -128,17 +128,63 @@ public sealed class FlowField
 
     public float CostAt(int x, int y) => Grid.InBounds(x, y) ? Cost[y * Grid.W + x] : float.PositiveInfinity;
 
+    private const int SnapRadius = 12;
+
     /// <summary>
-    /// <paramref name="start"/>, or the nearest cell the field reached within 12 cells (the player can stand on a
-    /// blocked cell for a moment); null when the start is on another island than every goal.
+    /// <paramref name="start"/>, or the nearest cell the field reached within 12 cells WITHOUT crossing blocked ground
+    /// (the player can stand on a blocked cell for a moment, or in a pocket only joined diagonally past a corner); null
+    /// when the start is on another island than every goal. A plain 12-cell ring search used to jump a thin wall or
+    /// chasm onto the goal's island and draw a route the player could not walk (review note, 2026-10-10).
     /// </summary>
     public (int x, int y)? Snap((int x, int y) start)
     {
         if (!float.IsPositiveInfinity(CostAt(start.x, start.y))) return start;
-        for (var r = 1; r <= 12; r++)
+        // Standing on blocked ground: the nearest walkable cell is the side the player is on.
+        if (Grid.NearestWalkable(start.x, start.y, SnapRadius) is not { } from) return null;
+        if (!float.IsPositiveInfinity(CostAt(from.x, from.y))) return from;
+        // Flood the walkable cells around it (8-connected, corners allowed: a pocket the field's no-corner-cutting rule
+        // left out) until one the field reached.
+        const int side = 2 * SnapRadius + 1;
+        Span<bool> seen = stackalloc bool[side * side];
+        Span<int> queue = stackalloc int[side * side];
+        int head = 0, tail = 0;
+        int ox = start.x - SnapRadius, oy = start.y - SnapRadius;
+        seen[(from.y - oy) * side + (from.x - ox)] = true;
+        queue[tail++] = (from.y - oy) * side + (from.x - ox);
+        while (head < tail)
+        {
+            var q = queue[head++];
+            int lx = q % side, ly = q / side;
+            for (var k = 0; k < 8; k++)
+            {
+                int nlx = lx + Dx[k], nly = ly + Dy[k];
+                if ((uint)nlx >= side || (uint)nly >= side) continue;
+                var n = nly * side + nlx;
+                if (seen[n]) continue;
+                seen[n] = true;
+                int x = ox + nlx, y = oy + nly;
+                if (!Grid.Walkable(x, y)) continue;
+                if (!float.IsPositiveInfinity(Cost[y * Grid.W + x])) return (x, y);
+                queue[tail++] = n;
+            }
+        }
+        // A speck of a few walkable cells is pathfinding-grid noise the player only brushes past (route-bench: Act 2's
+        // dropped islands are mostly 1-30 cells); treat it as the ground around it, as the ring search did. Real ground
+        // on the other side of a wall or chasm is larger: the player is cut off from the goal.
+        return tail < SpeckCells ? NearestReached(start) : null;
+    }
+
+    private const int SpeckCells = 40;
+
+    private (int x, int y)? NearestReached((int x, int y) start)
+    {
+        for (var r = 1; r <= SnapRadius; r++)
         for (var dy = -r; dy <= r; dy++)
         for (var dx = -r; dx <= r; dx++)
+        {
+            if (Math.Abs(dx) != r && Math.Abs(dy) != r) continue;
             if (!float.IsPositiveInfinity(CostAt(start.x + dx, start.y + dy))) return (start.x + dx, start.y + dy);
+        }
         return null;
     }
 
