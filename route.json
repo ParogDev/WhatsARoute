@@ -17,6 +17,9 @@
     { "Quest": "OpenTheDesertGates", "States": [18], "Area": "G2_5_1", "Label": "Retrace Orbala's path: the Horn of the Vastiri (Mastodon Badlands)", "Note": "Verified live 2026-10-10: state 18 = 'only recreating the Horn of the Vastiri will dispel the sandstorm'. Listed before the caravan return: the user does the horn first, then talks to Zarka. Area steps lead on to the Bone Pits" },
     { "Quest": "BurnTheWaterGoddess", "States": [2], "Area": "G2_town", "Label": "Return to the Ardura Caravan", "Note": "Verified live 2026-10-10: state 2 = 'You have burned the Water Goddess alive at her request. Return to the Ardura Caravan.' (set when the Essence of Water is picked up)" }
   ],
+  "Use": [
+    { "Item": "SoulCoreConsumable", "Label": "Use The Flame Core (10% Fire Res)", "Note": "Verified live 2026-10-11: Blackjaw (The Oubliette, Jiquani's Machinarium) drops it; Metadata/Items/QuestItems/Gallows/Act3/SoulCoreConsumable in the main inventory until right-clicked" }
+  ],
   "Areas": {
     "G3_3": [
       { "Target": "radar:Mighty Silverfist (+2 Passive)", "Label": "Mighty Silverfist (+2 Passive)", "Optional": true },
@@ -38,7 +41,7 @@
     ],
     "G3_6_1": [
       { "Target": "click:3_6_1/Objects/KeyPedestal", "Carrying": "VaalKeyGem", "SkipIfNone": true, "Label": "Place the Soul Core in the Stone Altar", "Note": "Verified live 2026-10-11: cores are VaalKeyGem<n> in MainInventory once picked up; the quest stays at 43 while you carry the second one, so the inventory decides. Used altars turn untargetable (KeyPedestal_Entrance)" },
-      { "Target": "radar:The Oubliette (10% Fire Res)", "Label": "The Oubliette (10% Fire Res)", "Optional": true },
+      { "Target": "entity:Monsters/BlackJawSuperunique/BlackJaw|entity:Monsters/BlackJawSuperunique/objects/BossRoomMinimapIcon|radar:The Oubliette (10% Fire Res)", "Label": "The Oubliette: Blackjaw (10% Fire Res)", "Optional": true, "Note": "Verified live 2026-10-11: Radar's Oubliette row is the boss-room door tile; Blackjaw (BlackJaw@37) stands ~145 cells past it and drops The Flame Core (see Use)" },
       { "Target": "radar:Jiquani's Sanctum", "Label": "Keep exploring: the next Soul Core shows when it loads" }
     ],
     "G3_6_2": [

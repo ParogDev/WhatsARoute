@@ -680,11 +680,31 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         return true;
     }
 
+    private bool _useItem;   // the objective is an item to use from the inventory (no path)
+
     private void ResolveObjective(AreaGrid grid, (int x, int y) cell)
     {
         string spec;
         var steps = _book.StepsFor(_areaRaw);
         var q = Settings.Route.Mode.Value == "Route" ? _questObj : null;
+        _useItem = false;
+        if (Settings.Route.Mode.Value == "Route")
+            foreach (var u in _book.Route.Use)
+            {
+                if (u.Item.Length == 0 || !Carrying(u.Item)) continue;
+                // A reward to use from the inventory (2026-10-11, the user after Blackjaw: "I looted the flame core, the next
+                // step should be to open my inventory, then use it"): nothing to walk to, the card says what to do.
+                _useItem = true;
+                _stepIndex = -1;
+                _targetSpec = "use:" + u.Item;
+                _resolved.Goals.Clear(); _resolved.GoalEntities.Clear();
+                _resolved.Label = u.Label ?? "Use it from your inventory";
+                _resolved.Why = null; _resolved.TravelTo = null; _resolved.ViaPortal = false; _resolved.FromMemory = false;
+                _field = null; _goalSig = ""; _frame.Ready = false; _frame.HasGoalBox = false; _frame.Detected = false;
+                _goalEntity = null; _goalRender = null;
+                if (_targetSpec + "|" + _resolved.Label is var useObjective && useObjective != _lastObjective) { _lastObjective = useObjective; Trace("objective"); }
+                return;
+            }
         if (Settings.Route.Mode.Value == "Route" && Settings.Route.PickUpQuestItems.Value && QuestItemNear(cell))
         {
             // A quest item on the ground beats the plan (2026-10-11, the user after Xyclucian: "detect quest items on the
@@ -1087,6 +1107,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 ViaPortal = _resolved.ViaPortal,
                 PortalKey = _portalKey,
                 DoorAhead = _doorAhead is { IsValid: true, IsTargetable: true },
+                UseItem = _useItem,
                 TravelHub =_areaRaw.StartsWith("G2_", StringComparison.OrdinalIgnoreCase) ? "the Desert Map" : "the waypoint",
                 TravelMapOpen = _map.Open,
                 StopChosen = _chosenStop != null,

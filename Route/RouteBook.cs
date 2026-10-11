@@ -82,6 +82,16 @@ public sealed class RouteFile
     public Dictionary<string, List<RouteStep>> Areas { get; set; } = new();
     /// <summary>Live file only: a line for the player, shown under the card when the file changes (the agent's reply).</summary>
     public string? Message { get; set; }
+    /// <summary>Reward items to use from the inventory (The Flame Core): while one is carried, using it is the objective, anywhere.</summary>
+    public List<UseItem> Use { get; set; } = new();
+}
+
+/// <summary>An item to right-click in the inventory once you have it (a permanent buff), by metadata path part.</summary>
+public sealed class UseItem
+{
+    public string Item { get; set; } = "";
+    public string? Label { get; set; }
+    public string? Note { get; set; }
 }
 
 /// <summary>Radar's targets.json row (read from the sibling Radar plugin when installed; never copied).</summary>
@@ -149,6 +159,7 @@ public sealed class RouteBook
         if (live == null) return;
         foreach (var (key, steps) in live.Areas) Route.Areas[key] = steps;
         Route.Quests.InsertRange(0, live.Quests);
+        Route.Use.InsertRange(0, live.Use);
         LiveAreas = live.Areas.Count;
         LiveQuests = live.Quests.Count;
         LiveMessage = live.Message;
