@@ -681,6 +681,43 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     }
 
     private bool _useItem;   // the objective is an item to use from the inventory (no path)
+    private string _useItemPart = "";
+    private ExileCore2.PoEMemory.Element? _useSlot;   // the item's slot in the inventory panel, while it is open
+    private double _nextUseScan;
+
+    /// <summary>
+    /// The item to use, framed in the open inventory (2026-10-11, the user: "highlight it in my inventory"). The slot is
+    /// looked up 4x per second while the panel is open; its rect is read every frame (one call) so it follows the panel.
+    /// </summary>
+    private void DrawUseHighlight(Vector3 core, Vector3 glow, double time)
+    {
+        var panel = GameController.IngameState.IngameUi.InventoryPanel;
+        if (panel is not { IsVisible: true }) { _useSlot = null; return; }
+        if (time >= _nextUseScan || _useSlot is not { IsValid: true })
+        {
+            _nextUseScan = time + 0.25;
+            _useSlot = null;
+            var items = panel[ExileCore2.Shared.Enums.InventoryIndex.PlayerInventory]?.VisibleInventoryItems;
+            if (items != null)
+                foreach (var it in items)
+                    if (it?.Item?.Path?.Contains(_useItemPart, StringComparison.OrdinalIgnoreCase) == true) { _useSlot = it; break; }
+        }
+        if (_useSlot == null) return;
+        var r = _useSlot.GetClientRect();
+        var min = new Vector2(r.X, r.Y);
+        var max = new Vector2(r.X + r.Width, r.Y + r.Height);
+        var dl = ImGui.GetForegroundDrawList();
+        var pulse = 0.55f + 0.45f * MathF.Sin((float)(time * Math.PI * 2 / 1.2));
+        for (var k = 3; k >= 1; k--)   // soft halo, widest first
+            dl.AddRect(min - new Vector2(k * 3), max + new Vector2(k * 3), Glow.Col(glow, 0.10f * pulse * (4 - k)), 6f + k * 3, ImDrawFlags.None, 3f);
+        dl.AddRect(min, max, Glow.Col(core, 0.65f + 0.35f * pulse), 5f, ImDrawFlags.None, 2.2f);
+        const string hint = "Right-click";
+        var size = ImGui.GetFontSize();
+        var ts = ImGui.GetFont().CalcTextSizeA(size, float.MaxValue, 0f, hint);
+        var tp = new Vector2((min.X + max.X - ts.X) * 0.5f, min.Y - ts.Y - 8f);
+        dl.AddRectFilled(tp - new Vector2(6, 3), tp + ts + new Vector2(6, 3), Glow.Col(new Vector3(0.04f, 0.06f, 0.07f), 0.88f), 4f);
+        dl.AddText(ImGui.GetFont(), size, tp, Glow.Col(core, 0.95f), hint);
+    }
 
     private void ResolveObjective(AreaGrid grid, (int x, int y) cell)
     {
@@ -695,6 +732,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 // A reward to use from the inventory (2026-10-11, the user after Blackjaw: "I looted the flame core, the next
                 // step should be to open my inventory, then use it"): nothing to walk to, the card says what to do.
                 _useItem = true;
+                _useItemPart = u.Item;
                 _stepIndex = -1;
                 _targetSpec = "use:" + u.Item;
                 _resolved.Goals.Clear(); _resolved.GoalEntities.Clear();
@@ -949,6 +987,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         // sibling for the ribbon, the large-map line and its own marker. The travel map above and the door marker
         // below keep the plain theme: they are the planned road, not the found thing.
         Glow.Theme(Settings.World, _frame.Detected, out var fCore, out var fGlow);
+        if (_useItem) DrawUseHighlight(core, glow, time);   // before the big-panel check: the inventory is one
         if (BigPanelOpen()) return;
         var avoidUi = Settings.World.AvoidGameUi.Value;
         if (avoidUi)
