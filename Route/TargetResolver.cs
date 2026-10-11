@@ -139,7 +139,8 @@ public sealed class TargetResolver
                 break;
             case "waypoint":
                 r.Label = "Waypoint";
-                Entities(gc, r, EntityType.Waypoint, _ => true);
+                // Act 3 waypoints are IngameIcons (3_town/Objects/WaypointTimePresent, Waypoint_LongActivationRadius): match the path too.
+                Entities(gc, r, e => e.Type == EntityType.Waypoint || e.Path?.Contains("Waypoint", StringComparison.Ordinal) == true);
                 break;
             case "transition":
             {
@@ -192,10 +193,10 @@ public sealed class TargetResolver
                     r.FromEntities = false;   // not "nothing loaded yet": the last route (to a waypoint) must not be kept
                     return;
                 }
-                Entities(gc, r, e => e.Type == EntityType.Waypoint || e.Path?.Contains("Checkpoint", StringComparison.OrdinalIgnoreCase) == true);
+                Entities(gc, r, e => e.Type == EntityType.Waypoint || e.Path?.Contains("Waypoint", StringComparison.Ordinal) == true || e.Path?.Contains("Checkpoint", StringComparison.OrdinalIgnoreCase) == true);
                 if (r.Goals.Count > 0) { r.Label = $"Waypoint: travel to {name}"; break; }
                 // Nothing loaded near you (a boss arena): a waypoint or checkpoint seen earlier this visit, else any exit.
-                Remembered(r, s => s.Type == nameof(EntityType.Waypoint) || s.Path.Contains("Checkpoint", StringComparison.OrdinalIgnoreCase));
+                Remembered(r, s => s.Type == nameof(EntityType.Waypoint) || s.Path.Contains("Waypoint", StringComparison.Ordinal) || s.Path.Contains("Checkpoint", StringComparison.OrdinalIgnoreCase));
                 if (r.Goals.Count > 0) { r.Label = $"Waypoint: travel to {name} (seen earlier)"; break; }
                 Entities(gc, r, EntityType.AreaTransition, IsTargetable);
                 if (r.Goals.Count == 0) Remembered(r, s => s.Type == nameof(EntityType.AreaTransition) && s.Targetable);
