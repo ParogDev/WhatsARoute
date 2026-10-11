@@ -219,7 +219,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         _lastCell = (int.MinValue, 0); _lastFieldUsed = null; _lastEdgesUsed = null;
         _stepShift = 0; _stepIndex = -1; _reachedSteps.Clear(); _nextResolve = 0; _nextFlags = 0;
         _goalEntity = null; _goalRender = null; _frame.HasGoalBox = false; _playerRender = null; _chosenStop = null; _stopShown = -1;
-        _doors.Clear(); _doorAhead = null; _doorRender = null;
+        _doors.Clear(); _doorAhead = null; _doorRender = null; _questItems.Clear();
         _fresh.Reset();
         _resolver.ResetArea();
         _portalKey = GameKeys.Binding(GameKeys.Config(), "use_portal_scroll");   // the binding is re-read per area (the player may rebind), the path found once
@@ -612,14 +612,45 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private const int QuestItemCells = 150;
 
     /// <summary>A quest item (Metadata/Items/QuestItems/...) on the ground within <see cref="QuestItemCells"/>, resolved into _resolved and named.</summary>
+    // Quest items seen this visit, kept until picked up (2026-10-11 Machinarium: a Soul Core flickered in and out as the
+    // target while the player walked at the edge of the 150-cell radius, and was lost once it unloaded). An item that
+    // vanishes while you stand next to it was picked up; one that vanishes while you are far away only unloaded.
+    private readonly Dictionary<long, (int x, int y, string name)> _questItems = new();
+    private const int PickedUpCells = 25;
+
     private bool QuestItemNear((int x, int y) cell)
     {
         _resolver.Resolve(GameController, _book, QuestItemSpec, _areaRaw, _resolved);
-        if (_resolved.Goals.Count == 0) return false;
-        ApplyStepFilters(new RouteStep { Within = QuestItemCells }, cell);
-        if (_resolved.Goals.Count == 0) return false;
-        var name = _resolved.GoalEntities.Count > 0 ? _resolved.GoalEntities[0].Entity.GetComponent<WorldItem>()?.ItemEntity?.GetComponent<Base>()?.Name : null;
-        _resolved.Label = $"Pick up {(string.IsNullOrEmpty(name) ? "the quest item" : name)}";
+        var loaded = new HashSet<long>();
+        for (var i = 0; i < _resolved.GoalEntities.Count; i++)
+        {
+            var g = _resolved.GoalEntities[i];
+            loaded.Add(g.Entity.Address);
+            var near = Math.Max(Math.Abs(g.X - cell.x), Math.Abs(g.Y - cell.y)) <= QuestItemCells;
+            if (near || _questItems.ContainsKey(g.Entity.Address))
+                _questItems[g.Entity.Address] = (g.X, g.Y, g.Entity.GetComponent<WorldItem>()?.ItemEntity?.GetComponent<Base>()?.Name ?? "the quest item");
+        }
+        foreach (var addr in _questItems.Keys.ToList())
+        {
+            if (loaded.Contains(addr)) continue;
+            var it = _questItems[addr];
+            if (Math.Max(Math.Abs(it.x - cell.x), Math.Abs(it.y - cell.y)) <= PickedUpCells) { _questItems.Remove(addr); Trace("quest-item-taken", it.name); }
+        }
+        if (_questItems.Count == 0) return false;
+        // The nearest one leads; all of them are goals (the field picks the closest reachable).
+        _resolved.Goals.Clear();
+        for (var i = _resolved.GoalEntities.Count - 1; i >= 0; i--)   // loaded ones keep their marker
+            if (!_questItems.ContainsKey(_resolved.GoalEntities[i].Entity.Address)) _resolved.GoalEntities.RemoveAt(i);
+        var best = default((int x, int y, string name)); var bestD = int.MaxValue;
+        foreach (var it in _questItems.Values)
+        {
+            _resolved.Goals.Add((it.x, it.y));
+            var d = Math.Max(Math.Abs(it.x - cell.x), Math.Abs(it.y - cell.y));
+            if (d < bestD) { bestD = d; best = it; }
+        }
+        _resolved.FromEntities = false;
+        _resolved.FromMemory = bestD > QuestItemCells;
+        _resolved.Label = $"Pick up {best.name}";
         _resolved.Why = null;
         return true;
     }
@@ -636,8 +667,10 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             _stepIndex = -1;
             spec = QuestItemSpec;
             _targetSpec = spec;
+            _frame.Detected = true;
             goto Resolved;
         }
+        _frame.Detected = false;
         if (q != null && !RouteBook.LikeAny(_areaRaw, q.Area))
         {
             _stepIndex = -1;
