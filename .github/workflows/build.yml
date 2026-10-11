@@ -1,0 +1,29 @@
+# Builds the plugin (PoE2, net8) on the maintainer's self-hosted runner (label "hexile"), whose
+# container has the ExileCore2 reference DLLs mounted read-only at $exilecore2Package. Forks never
+# run here: the job is skipped for fork PRs, and the runner supervisor independently refuses them.
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, hexile]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build (poe2)
+        run: dotnet build WhatsARoute.csproj -c Release -nologo
