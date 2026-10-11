@@ -131,6 +131,9 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private void ReloadRoute()
     {
         _book.Load(DataDir, LiveDir);
+        // Reached steps are indexes into the area's list, which an edit can reorder (2026-10-11 Sanctum: a new first step
+        // inherited "reached" from the old one and was skipped). Kills (_deadSeen) are kept: they are not indexes.
+        _reachedSteps.Clear();
         _goalSig = ""; _nextResolve = 0; _nextQuests = 0;
         var what = _book.LiveError ?? _book.RouteError ?? _book.LiveMessage
             ?? (_book.LiveAreas + _book.LiveQuests > 0 ? $"Route updated (live: {_book.LiveAreas} areas, {_book.LiveQuests} quest objectives)" : "Route updated");
