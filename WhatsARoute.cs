@@ -895,6 +895,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         var glow = Glow.Rgb(Settings.World.PathGlow.Value);
         if (_map.Open && _chosenStop is { } stop) DrawTravelMap(stop, core, glow, time);
         else _stopShown = -1;
+        // A detected objective (a quest item on the ground) gets the theme's green sibling, ribbon and marker alike.
+        if (_frame.Detected) Glow.Theme(Settings.World, true, out core, out glow);
         if (BigPanelOpen()) return;
         var avoidUi = Settings.World.AvoidGameUi.Value;
         if (avoidUi)

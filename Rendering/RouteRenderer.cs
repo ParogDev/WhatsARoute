@@ -8,20 +8,32 @@ namespace WhatsARoute.Rendering;
 /// <summary>
 /// Draws one route: a warm light trail from the player's feet toward the objective (fading in at the feet and out at
 /// the draw distance, comets showing the direction), the terrain edges along it in cool cyan, and the whole route on
-/// the large map. The camera is snapshotted once per frame and points are projected with it; every buffer is reused.
+/// the large map. A detected objective (RouteFrame.Detected: a quest item found on the ground, which the player could
+/// walk away from) is drawn in the theme's green sibling (Glow.Theme), breathing, with short quick comets, so it reads
+/// as "a found thing, go grab it" rather than the planned road. The camera is snapshotted once per frame and points
+/// are projected with it; every buffer is reused.
 /// </summary>
 public sealed class RouteRenderer
 {
-    private const float FadeInWorld = 60f;
+    // The ribbon fades in over the first 160 world units from the feet, as Smooth squared: under 3% for the first
+    // 40 units (the feet and the model's base), a quarter at 80 (where the torso projects onto the ground behind the
+    // feet with the camera's ~39 degree pitch), full only once clear of the model. 60 units with a plain smoothstep
+    // clipped the character (2026-10-11, the user: "the line coming out of us should be more faded / it shouldn't
+    // clip our model without heavily fading at least"). Core, halos and comets all take this alpha.
+    private const float FadeInWorld = 160f;
     private const float EdgeFull = 450f, EdgeFade = 450f;   // edges: full within, then fade over (world units)
-    private const float PulseSpeed = 240f, PulseSpacing = 180f, PulseTail = 70f, PulseHead = 18f;
+    private const float PulseSpeed = 240f, PulseSpacing = 180f, PulseTail = 70f;
+    // Detected (a quest item found on the ground): shorter, denser, quicker comets, a trickle running to the thing
+    // found; 110 apart keeps them under MaxPulses at the default 2200 draw distance.
+    private const float DetSpeed = 320f, DetSpacing = 110f, DetTail = 44f;
+    private const double DetBreathSec = 1.6;                  // the detected ribbon breathes: a beacon, not a road
     private const float ApproachWorld = 300f;                 // the last stretch of the path that lights up near the goal
     private const float EdgeQuietNear = 150f, EdgeQuietFade = 250f;   // edges within this of the goal step back (near 1)
-    private const int MaxPulses = 24;
+    private const int MaxPulses = 28;
     private const float RingR = 8f;
 
-    private Vector2[] _pts = new Vector2[512], _buf = new Vector2[512], _map = new Vector2[1024];
-    private float[] _along = new float[512], _alpha = new float[512];
+    private Vector2[] _pts = new Vector2[512], _buf = new Vector2[512], _buf2 = new Vector2[512], _map = new Vector2[1024];
+    private float[] _along = new float[512], _alpha = new float[512], _bufA = new float[512], _bufS = new float[512];
     private string? _labelSrc, _labelText;
 
     /// <param name="player">The player's position at draw time (fresh when FreshView has it): the path starts at the live feet.</param>
@@ -78,24 +90,35 @@ public sealed class RouteRenderer
         if (n < 2) return;
         var fadeOut = far * 0.25f;
         for (var i = 0; i < n; i++)
-            _alpha[i] = Glow.Smooth(_along[i] / FadeInWorld) * (1f - Glow.Smooth((_along[i] - (far - fadeOut)) / fadeOut));
+        {
+            var fadeIn = Glow.Smooth(_along[i] / FadeInWorld);
+            _alpha[i] = fadeIn * fadeIn * (1f - Glow.Smooth((_along[i] - (far - fadeOut)) / fadeOut));
+        }
 
-        var core = Glow.Rgb(s.World.PathCore.Value);
-        var glow = Glow.Rgb(s.World.PathGlow.Value);
-        var st = new Glow.Style(18f, 0.13f, 8f, 0.26f, 0.35f, 2.6f, 0.95f, glow, core, core).Scaled(s.World.PathWidth.Value * (1f + 0.3f * near));
-        Glow.StrokeChunks(dl, _pts, _alpha, n, st, 1f, disp, ref _buf);
+        Glow.Theme(s.World, f.Detected, out var core, out var glow);
+        var pw = s.World.PathWidth.Value;
+        // Softer than before: a 30 px far halo at 4.5% under the 16 px outer one, the ink rim and the mid halo lighter,
+        // the core thinner and not fully opaque, so the profile falls off in four steps instead of a hard bright core
+        // with a dark edge (2026-10-11, the user: "the glow needs to be softer and round").
+        var st = new Glow.Style(16f, 0.10f, 7f, 0.20f, 0.22f, 2.2f, 0.80f, glow, core, core, 30f, 0.045f).Scaled(pw * (1f + 0.3f * near));
+        var breath = f.Detected ? 0.84f + 0.16f * MathF.Sin((float)(time * Math.PI * 2 / DetBreathSec)) : 1f;
+        Glow.StrokeChunks(dl, _pts, _alpha, n, st, breath, disp, ref _buf);
         if (near > 0.02f && acc < far)
         {
-            // The last stretch into the goal: a wider warm glow and a hot core, growing with nearness.
+            // The last stretch into the goal: a wider warm glow and a hot core, growing with nearness. It ramps in
+            // over its first half and carries the ribbon's own alpha (the fade at the feet when the goal is close).
             var hint = 0;
-            var tail = Sub(n, acc - ApproachWorld, acc, ref hint);
-            if (tail >= 2 && Glow.Visible(_buf[0], _buf[tail - 1], disp))
+            var s0 = acc - ApproachWorld;
+            var tail = Sub(n, s0, acc, ref hint);
+            if (tail >= 2)
             {
-                Glow.Line(dl, _buf, tail, glow, 0.22f * near, 22f * s.World.PathWidth.Value);
-                Glow.Line(dl, _buf, tail, Vector3.Lerp(core, Vector3.One, 0.5f), 0.55f * near, 3.2f * s.World.PathWidth.Value);
+                for (var i = 0; i < tail; i++) _bufA[i] *= Glow.Smooth((_bufS[i] - s0) / (ApproachWorld * 0.5f));
+                var hot = Vector3.Lerp(core, Vector3.One, 0.5f);
+                var ts = new Glow.Style(22f * pw, 0.22f, 0f, 0f, 0f, 3.2f * pw, 0.55f, glow, hot, hot);
+                Glow.StrokeChunks(dl, _buf, _bufA, tail, ts, near, disp, ref _buf2);
             }
         }
-        if (s.World.ShowComets) Comets(dl, n, acc, time, glow, disp, near);
+        if (s.World.ShowComets) Comets(dl, n, acc, time, glow, disp, near, f.Detected);
 
         if (f.Goal is { } g && acc < far && !f.HasGoalBox)   // an entity goal gets the marker instead (Markers.DrawEntity)
         {
@@ -104,30 +127,40 @@ public sealed class RouteRenderer
         }
     }
 
-    private void Comets(ImDrawListPtr dl, int count, float end, double time, Vector3 glow, Vector2 disp, float near)
+    /// <summary>
+    /// Each comet is a round head (a soft halo disc and a bright dot: round whichever way the path bends) with a tail
+    /// that tapers behind it in three pieces, thinner and fainter toward the back, so it never ends square. The
+    /// planned route gets long calm comets; a detected objective short quick ones, twice as dense. Five draw calls
+    /// per comet, as before.
+    /// </summary>
+    private void Comets(ImDrawListPtr dl, int count, float end, double time, Vector3 glow, Vector2 disp, float near, bool detected)
     {
-        if (end < PulseHead * 2) return;
+        var tailLen = detected ? DetTail : PulseTail;
+        if (end < tailLen) return;
         var white = new Vector3(1f, 0.98f, 0.9f);
         // Near the goal the comets run faster and closer together: a stream pouring into the pad.
-        var speed = PulseSpeed * (1f + 1.1f * near);
-        var spacing = PulseSpacing * (1f - 0.45f * near);
+        var speed = (detected ? DetSpeed : PulseSpeed) * (1f + 1.1f * near);
+        var spacing = (detected ? DetSpacing : PulseSpacing) * (1f - 0.45f * near);
         var phase = (float)(time * speed % spacing);
         var hint = 0;
         for (var i = 0; i < MaxPulses; i++)
         {
             var sPos = phase + i * spacing;
-            if (sPos - PulseTail > end) break;
+            if (sPos - tailLen > end) break;
             var env = AlphaAt(MathF.Min(sPos, end), count);
-            if (sPos > end) env *= MathF.Max(0f, 1f - (sPos - end) / PulseTail);
+            if (sPos > end) env *= MathF.Max(0f, 1f - (sPos - end) / tailLen);
             env *= 1f + near * Glow.Smooth(1f - (end - sPos) / ApproachWorld);   // brighter as they arrive
             if (env < 0.03f) continue;
-            var n = Sub(count, sPos - PulseTail, sPos, ref hint);
-            if (n >= 2 && Glow.Visible(_buf[0], _buf[n - 1], disp)) Glow.Line(dl, _buf, n, white, 0.30f * env, 6.5f);
-            n = Sub(count, sPos - PulseHead, sPos, ref hint);
+            var n = Sub(count, sPos - tailLen, sPos - tailLen * 0.6f, ref hint);
+            if (n >= 2 && Glow.Visible(_buf[0], _buf[n - 1], disp)) Glow.Line(dl, _buf, n, white, 0.08f * env, 2.2f);
+            n = Sub(count, sPos - tailLen * 0.6f, sPos - tailLen * 0.28f, ref hint);
+            if (n >= 2 && Glow.Visible(_buf[0], _buf[n - 1], disp)) Glow.Line(dl, _buf, n, white, 0.16f * env, 4f);
+            n = Sub(count, sPos - tailLen * 0.28f, sPos, ref hint);
             if (n < 2 || !Glow.Visible(_buf[0], _buf[n - 1], disp)) continue;
-            Glow.Line(dl, _buf, n, glow, 0.28f * env, 10f);
-            Glow.Line(dl, _buf, n, white, 0.90f * env, 3.4f);
-            dl.AddCircleFilled(_buf[n - 1], 2.8f, Glow.Col(white, 0.95f * env), 12);
+            Glow.Line(dl, _buf, n, white, 0.26f * env, 5.5f);
+            var head = _buf[n - 1];
+            dl.AddCircleFilled(head, 7f, Glow.Col(glow, 0.20f * env), 16);
+            dl.AddCircleFilled(head, 2.8f, Glow.Col(white, 0.92f * env), 12);
         }
     }
 
@@ -138,29 +171,35 @@ public sealed class RouteRenderer
         return _alpha[count - 1];
     }
 
-    /// <summary>The piece of the projected path between two distances along it, into _buf.</summary>
+    /// <summary>
+    /// The piece of the projected path between two distances along it, into _buf, with each point's ribbon alpha in
+    /// _bufA and its distance along the path in _bufS.
+    /// </summary>
     private int Sub(int count, float s0, float s1, ref int hint)
     {
         if (s0 < 0) s0 = 0;
         if (s1 > _along[count - 1]) s1 = _along[count - 1];
         if (s1 - s0 < 0.5f) return 0;
         Glow.Ensure(ref _buf, count + 2);
+        Glow.Ensure(ref _bufA, count + 2);
+        Glow.Ensure(ref _bufS, count + 2);
         var i = Math.Clamp(hint, 0, count - 2);
         while (i > 0 && _along[i] > s0) i--;
         while (i < count - 2 && _along[i + 1] <= s0) i++;
         hint = i;
         var n = 0;
-        _buf[n++] = LerpAt(i, s0);
+        _buf[n] = LerpAt(i, s0, out _bufA[n]); _bufS[n++] = s0;
         var j = i + 1;
-        while (j < count - 1 && _along[j] < s1) _buf[n++] = _pts[j++];
-        _buf[n++] = LerpAt(j - 1, s1);
+        while (j < count - 1 && _along[j] < s1) { _buf[n] = _pts[j]; _bufA[n] = _alpha[j]; _bufS[n++] = _along[j++]; }
+        _buf[n] = LerpAt(j - 1, s1, out _bufA[n]); _bufS[n++] = s1;
         return n;
     }
 
-    private Vector2 LerpAt(int i, float s)
+    private Vector2 LerpAt(int i, float s, out float alpha)
     {
         var d = _along[i + 1] - _along[i];
         var t = d > 1e-4f ? Math.Clamp((s - _along[i]) / d, 0f, 1f) : 0f;
+        alpha = _alpha[i] + (_alpha[i + 1] - _alpha[i]) * t;
         return Vector2.Lerp(_pts[i], _pts[i + 1], t);
     }
 
@@ -168,6 +207,7 @@ public sealed class RouteRenderer
     {
         var breath = 0.5f + 0.5f * MathF.Sin((float)(time * Math.PI * 2 / 2.4));
         var r = RingR + 0.8f * breath;
+        dl.AddCircleFilled(c, r + 7f, Glow.Col(glow, 0.12f), 24);   // the ribbon's square end dissolves into this disc
         dl.AddCircle(c, r + 2.5f, Glow.Col(glow, 0.16f), 32, 3.5f);
         dl.AddCircle(c, r, Glow.Col(Glow.Ink, 0.30f), 32, 3.2f);
         dl.AddCircle(c, r, Glow.Col(core, 0.78f + 0.2f * breath), 32, 1.6f);
@@ -241,6 +281,7 @@ public sealed class RouteRenderer
         }
         var c = s.Map.Color.Value;
         var col = Glow.Rgb(c);
+        if (f.Detected) col = Glow.Hue(col, Glow.DetectedHueShift);   // the same green as the world ribbon
         dl.AddPolyline(ref _map[0], g.Count, Glow.Col(Glow.Ink, 0.55f * c.A / 255f), ImDrawFlags.None, s.Map.Width.Value + 2.5f);
         dl.AddPolyline(ref _map[0], g.Count, Glow.Col(col, c.A / 255f), ImDrawFlags.None, s.Map.Width.Value);
         dl.AddCircleFilled(_map[g.Count - 1], s.Map.Width.Value * 2.2f, Glow.Col(col, c.A / 255f), 16);
