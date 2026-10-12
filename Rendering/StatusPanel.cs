@@ -217,9 +217,10 @@ public sealed class StatusPanel
             var hub = i.TravelHub ?? "the Desert Map";
             return (i.PortalKey is { Length: > 0 } k ? $"Open a portal ({k}), then take {hub}" : $"Open a portal to town, then take {hub}", Tone.Info);
         }
+        if (i.TravelMapOpen && i.StopChosen) return ("Pick the marked stop", Tone.Info);   // also an island on Makoru's map
         if (i.HasTravelTo)
         {
-            if (i.TravelMapOpen) return i.StopChosen ? ("Pick the marked stop", Tone.Info) : ("That destination is not on this map yet", Tone.Info);
+            if (i.TravelMapOpen) return ("That destination is not on this map yet", Tone.Info);
             return i.ViaTravelMap ? ("In another area: take the Desert Map", Tone.Info) : ("In another area: take this exit", Tone.Info);
         }
         if (!i.FieldReady || !i.PathReady) return ("Finding the way", Tone.Busy);

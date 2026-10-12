@@ -52,10 +52,12 @@ public sealed class WorldMapReader
     public View Mode;
     public string Title = "";
     public bool Open;
+    public bool Port;             // the Travel view is a port (Act 4 sea): Stops are the islands themselves
     public string? Why;           // the broken link when the map is open but could not be read
     public double LastScanMs;
     private readonly Dictionary<long, (string id, string name)> _areaRows = new();
     private readonly List<(string id, string name, Vector2 c)> _dests = new();
+    private readonly List<Stop> _destStops = new();
     private double _nextScan;
     private long _wmAddress;
 
@@ -65,7 +67,7 @@ public sealed class WorldMapReader
         Why = null;
         var wm = gc.IngameState.IngameUi.WorldMap;
         var open = wm is { IsVisible: true };
-        if (!open) { Open = false; Stops.Clear(); _nextScan = 0; _wmAddress = 0; return; }
+        if (!open) { Open = false; Port = false; Stops.Clear(); _nextScan = 0; _wmAddress = 0; return; }
         if (!Open || wm.Address != _wmAddress) { _nextScan = 0; _wmAddress = wm.Address; }
         Open = true;
         if (now < _nextScan) return;
@@ -78,7 +80,14 @@ public sealed class WorldMapReader
     private void Scan(GameController gc, Element wm, string townAreaId)
     {
         Stops.Clear();
-        var root = Child(wm, 0, "WorldMap")?.Let(e => Child(e, 1, "WorldMap[0]"))?.Let(e => Child(e, 2, "WorldMap[0][1]"));
+        Port = false;
+        // WorldMap[0] holds one map per act and shows only the current one: [1] the Desert Map, [3] the Act 4 sea.
+        var acts = Child(wm, 0, "WorldMap");
+        if (acts == null) return;
+        var act = 1;
+        for (var a = 0; a < acts.ChildCount; a++)
+            if (acts.GetChildAtIndex(a) is { IsVisible: true }) { act = a; break; }
+        var root = Child(acts, act, "WorldMap[0]")?.Let(e => Child(e, 2, $"WorldMap[0][{act}]"));
         if (root == null) return;
         if (_areaRows.Count == 0)
             foreach (var a in gc.Files.WorldAreas.EntriesList) _areaRows[a.Address] = (a.Id, a.Name);
@@ -89,6 +98,7 @@ public sealed class WorldMapReader
         if (Mode == View.Unknown) Why = $"WorldMap[3] title '{Title}' is neither Travel nor Teleport: view not recognised";
 
         _dests.Clear();
+        _destStops.Clear();
         var mem = gc.Memory;
         var matched = 0;
         for (var i = 0; i < root.ChildCount; i++)
@@ -107,12 +117,20 @@ public sealed class WorldMapReader
                 // An area's own node (content icons - bosses, chests - are nodes with an icon child): the destination
                 // marker, and in the Teleport view the waypoint orb you click.
                 _dests.Add((area.id, area.name, c));
-                if (Mode == View.Teleport)
-                    Stops.Add(new Stop { Index = i, Node = n, AreaRow = row, Center = c, ScanCenter = c, Size = r.Width, ScanSize = r.Width, NodePosX = n.Position.X, Unlocked = n.IsVisible, DestId = area.id, DestName = area.name });
+                (Mode == View.Teleport ? Stops : _destStops).Add(new Stop { Index = i, Node = n, AreaRow = row, Center = c, ScanCenter = c, Size = r.Width, ScanSize = r.Width, NodePosX = n.Position.X, Unlocked = n.IsVisible, DestId = area.id, DestName = area.name });
             }
         }
-        if (matched == 0) { Why = $"no WorldMap[0][1][2] node (of {root.ChildCount}) has a WorldAreas row at +0x{AreaPtrOffset:X}: offset moved"; return; }
+        if (matched == 0) { Why = $"no WorldMap[0][{act}][2] node (of {root.ChildCount}) has a WorldAreas row at +0x{AreaPtrOffset:X}: offset moved"; return; }
         if (Mode != View.Travel) return;
+        // Every town node on one spot: no wheels, this is the port (Act 4, Makoru's sailing map), and the islands' own
+        // nodes are what you click. Seen 2026-10-11: Kingsmarch's two nodes share a centre, each island is one node.
+        if (Stops.Count > 1 && Stops.TrueForAll(s => Vector2.Distance(s.ScanCenter, Stops[0].ScanCenter) < 4))
+        {
+            Port = true;
+            Stops.Clear();
+            Stops.AddRange(_destStops);
+            return;
+        }
         foreach (var s in Stops)
         {
             var best = float.MaxValue;
