@@ -1,20 +1,35 @@
 {
-  "Name": "Acts 2-4 (draft)",
-  "Source": "Act 2: order from the Maxroll PoE2 campaign guide (updated 2026-06-02). Act 3: drafted 2026-10-11 from the known campaign order and Radar's G3 places, fixed live with the player through the feedback key. Act 4: 2026-10-12 from the game's own quest states (Main and Follow read each state's text as an objective: objective-types.json, docs/objective-types.md) and a speedrun research pass (Domistae 0.5.5, poe2db, Maxroll), island order for 100%. Places are Radar targets.json names.",
-  "Main": [ "FindTheSpearPieces", "InterludeToEndgameConnector" ],
-  "Follow": [ "Act4TreasureMapExpedition", "Act4KaruiElder", "HallsOfTheDeadBlankTattoo*", "Act4RescueMedicineWoman", "Act4DeliriumUnlock", "HideoutUnlock", "Act4KillSiren", "Act4ScourgeSkies", "Act4KillPrisoner*", "Act4KillGoblinGiant", "Act4VisitArastas", "A4BossFightPhase1To2ChaseLocalQuest" ],
+  "Name": "Full campaign: any% plus permanent rewards",
+  "Source": "2026-10-12: the whole campaign (Acts 1-4, the Interludes), any% with every permanent character reward (passive and weapon-set points, ascendancy points, resistances, life/mana/spirit, permanent blessings) and nothing else: no gems, currency, items or crafting unlocks. Act 4 island order follows the speedrun route (Kedge Bay first for Omniphobia's +2). Act 1 and the Interludes: quest texts read live from QuestStates.dat (Main/Follow), places from Radar targets.json. Act 2: Maxroll order, verified live 2026-10-10. Act 3: verified live 2026-10-11. Act 4: the game's quest states, Domistae 0.5.5, poe2db, speedrun.com runs. Research: research/campaign-speedrun-splits.md.",
+  "Main": [
+    "TheMiller", "TreeOfSouls", "TreeOfSouls2", "ReviveHoodedMentor", "GraveyardFight", "TheExecutioner", "TheIronCount",
+    "FindTheSpearPieces",
+    "InterludePart2", "InterludePart3", "InterludePart1", "InterludeToEndgameConnector"
+  ],
+  "Follow": [
+    "UnaLute", "TheOutcast",
+    "FindTheSuicideNote", "AscentToPower", "MysteriousRelics",
+    "KillTheBogWitch", "Ultimatum",
+    "Act4KaruiElder", "HallsOfTheDeadBlankTattoo*", "Act4RescueMedicineWoman", "Act4DeliriumUnlock", "Act4KillSiren", "Act4ScourgeSkies", "Act4KillPrisoner*", "Act4KillGoblinGiant", "Act4VisitArastas", "A4BossFightPhase1To2ChaseLocalQuest",
+    "InterludePart2ScorpionAndWorm", "InterludePart3YetiQuadrilla"
+  ],
   "NpcPlaces": {
     "Makoru": { "G4_town": "tile:*KalguurShip_Town*" }
   },
   "Quests": [
+    { "Quest": "TheOutcast", "States": [4, 3, 2], "Area": "G1_12", "Label": "Freythorn: cleanse the Ritual Altars, the King in the Mists (+30 Spirit)", "Note": "2026-10-12 from QuestStates.dat: 4 = 'Search for Freythorn above the Hunting Grounds', 3 = 'Search for Ritual Altars in Freythorn', 2 = the King guards the final altar. Listed so the side area comes before the Main text sends you on to Ogham Farmlands; Finn's own reward (state 1) is a gem, so it is not routed" },
+    { "Quest": "CaravanRescue", "States": [6, 5, 4, 3, 2, 1], "Area": "*", "Target": "quest", "Note": "2026-10-12: Act 2 opening (Vastiri Outskirts, Rathbreaker, the Ardura Caravan) led by the quest's own text" },
+    { "Quest": "OpenTheDesertGates", "States": [42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21], "Area": "*", "Target": "quest", "Note": "2026-10-12: Act 2's first half (the caravan, Mawdun, the Halani Gates, Traitor's Passage) led by the quest's own text. States 20-8 keep the hand-written entries below" },
+    { "Quest": "OpenTheDesertGates", "States": [7, 6, 5, 4, 3, 2, 1], "Area": "*", "Target": "quest", "Note": "2026-10-12: after Tor Gul. 7 = 'Speak to Asala to learn about the final battle', 6 = 'Use the Desert Map to travel to the Dreadnought', 5/4 = Jamanra, 3/2 = speak to the Hooded One, 1 = 'Talk to Asala to travel south'" },
     { "Quest": "FindTheSpearPieces", "States": [52], "Area": "G4_town", "Target": "npc:Makoru|tile:*KalguurShip_Town*", "Label": "Speak to Makoru at the ship: hand her the Boat Charter", "Note": "Verified live 2026-10-12: 52 = 'Speak to Makoru to hire her ship.' Since 0.5.5c the islands stay locked until the charter is handed to her" },
-    { "Quest": "FindTheSpearPieces", "States": [51, 50, 45, 43, 38, 36, 29, 28, 27], "Area": "G4_3_1|G4_3_2", "UnlessFlag": "G4_3_2SirenBossKilled", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to Whakapanu Island (Makoru): map piece, Shark Fin, Diamora", "Note": "100% island order (research): Whakapanu first (Torn Map Piece, the Great White One's Shark Fin, Diamora in the Singing Caverns). Ends when G4_3_2SirenBossKilled is set" },
-    { "Quest": "FindTheSpearPieces", "States": [51, 50, 45, 43, 38, 36, 29, 28, 27], "Area": "G4_7", "UnlessFlag": "G4_7ScourgeKilled", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to Shrike Island (Makoru): map piece, the Scourge of the Skies" },
+    { "Quest": "Act4DeliriumUnlock", "States": [18, 17, 16], "Area": "G4_2_1|G4_2_2", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to Kedge Bay (Makoru): Omniphobia (+2 weapon set points)", "Note": "Speedrun order (GuyThatDies route, Pts runs): Kedge Bay first, so the +2 points come before the island bosses" },
+    { "Quest": "Act4DeliriumUnlock", "States": [15, 14, 13, 12, 11, 10], "Area": "G4_2_2", "Label": "Journey's End: Captain Hartlin (the Verisium Ingots)", "Note": "From route.live.json (F8 fix, 2026-10-12)" },
+    { "Quest": "Act4DeliriumUnlock", "States": [9, 8, 7, 6, 5, 4, 3, 2, 1], "Area": "*", "Target": "quest", "Note": "2026-10-12: Dark Mists to the end before the islands (speedrun order): 9 = ingots to Dannig, 8/7 = back to Journey's End, 6 = 'Use the runed Verisium spikes to free Freya Hartlin', 5 = Omniphobia, 4 = 'Speak to Tujen in Kingsmarch', 3/2 = his reward, 1 = 'Use the Mist-shrouded Tome'. Seen live at 4: without this entry the route sailed on to the Isle of Kin" },
+    { "Quest": "FindTheSpearPieces", "States": [51, 50, 45, 43, 38, 36, 29, 28, 27], "Area": "G4_1_1|G4_1_2", "UnlessFlag": "G4_1_2GoblinGiantBossKilled", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to the Isle of Kin (Makoru): Krutog" },
+    { "Quest": "FindTheSpearPieces", "States": [51, 50, 45, 43, 38, 36, 29, 28, 27], "Area": "G4_3_1|G4_3_2", "UnlessFlag": "G4_3_2SirenBossKilled", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to Whakapanu Island (Makoru): Shark Fin, Diamora", "Note": "Ends when G4_3_2SirenBossKilled is set" },
     { "Quest": "FindTheSpearPieces", "States": [51, 50, 45, 43, 38, 36, 29, 28, 27], "Area": "G4_5_1|G4_5_2", "UnlessFlag": "G4_5_2PrisonerBossKilled", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to the Abandoned Prison (Makoru): Goddess of Justice, the Prisoner" },
-    { "Quest": "FindTheSpearPieces", "States": [51, 50, 45, 43, 38, 36, 29, 28, 27], "Area": "G4_1_1|G4_1_2", "UnlessFlag": "G4_1_2GoblinGiantBossKilled", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to the Isle of Kin (Makoru): map piece, Krutog" },
-    { "Quest": "Act4KaruiElder", "States": [20], "Area": "G4_4_1|G4_4_2|G4_4_3", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to the Eye of Hinekora (Makoru): Matiki's trial, +5% mana, tattoos", "Note": "Research: freeing Matiki (caged by one of the four island bosses, random per league) opens the Eye. The Karui quests' own texts lead once there (Follow)" },
-    { "Quest": "Act4DeliriumUnlock", "States": [18, 17, 16], "Area": "G4_2_1|G4_2_2", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to Kedge Bay (Makoru): map piece, Journey's End (+2 weapon set points)" },
-    { "Quest": "Act4TreasureMapExpedition", "States": [25, 23, 22, 21, 19], "Area": "G4_13", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to Plunder's Point (Makoru): the Verisium Anvil" },
+    { "Quest": "FindTheSpearPieces", "States": [51, 50, 45, 43, 38, 36, 29, 28, 27], "Area": "G4_7", "UnlessFlag": "G4_7ScourgeKilled", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to Shrike Island (Makoru): the Scourge of the Skies", "Note": "All four boss islands: the one holding Matiki (random per league) opens the Eye of Hinekora's permanent rewards" },
+    { "Quest": "Act4KaruiElder", "States": [20], "Area": "G4_4_1|G4_4_2|G4_4_3", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to the Eye of Hinekora (Makoru): +5% mana, tattoos, Navali's +2", "Note": "Research: freeing Matiki (caged by one of the four island bosses, random per league) opens the Eye. The Karui quests' own texts lead once there (Follow)" },
     { "Quest": "FindTheSpearPieces", "States": [29, 28, 27], "Area": "G4_8b|G4_8a", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to Arastas (Makoru)" },
     { "Quest": "CleanseTheSnakePit", "States": [6, 7, 8, 9], "Area": "G3_4", "Target": "click:SnakePit/SnakeLadyPotionChest|radar:Venom Vial (Pick Bonus)", "Label": "Venom Crypts: search the corpse (Venom Vial)", "Via": { "G3_town": "transition:G3_3", "G3_3": "radar:The Venom Crypts" }, "Note": "Verified live 2026-10-11: 9 = 'Search for the source of their poison' (town), 8 = 'Explore The Venom Crypts' (on entering), 7 = 'You have discovered a corpse. Search it.' (near it, vial not taken yet), 6 = 'Pick up the Corpse-snake Venom' (on the ground, Metadata/Items/QuestItems/Gallows/Act3/SnakeLadyPotion: the quest-item rule leads to it). The corpse is Metadata/Chests/QuestChests/SnakePit/SnakeLadyPotionChest in the boss room" },
     { "Quest": "SearchForTheVaalRepository", "States": [49], "Area": "G3_6_1|G3_6_2", "Label": "Enter Jiquani's Machinarium", "Via": { "G3_5": "transition:G3_6_1" }, "Note": "Verified live 2026-10-11: 49 = 'You have defeated the Machinarium's guardian chimera. Enter the facility.' Xyclucian drops the Chimeral Inscribed Ultimatum (Metadata/Items/QuestItems/UltimatumKeyQuest): the quest-item rule leads to it first" },
@@ -36,40 +51,88 @@
     { "Quest": "BurnTheWaterGoddess", "States": [2], "Area": "G2_town", "Label": "Return to the Ardura Caravan", "Note": "Verified live 2026-10-10: state 2 = 'You have burned the Water Goddess alive at her request. Return to the Ardura Caravan.' (set when the Essence of Water is picked up)" }
   ],
   "Use": [
-    { "Item": "SoulCoreConsumable", "Label": "Use The Flame Core (10% Fire Res)", "Note": "Verified live 2026-10-11: Blackjaw (The Oubliette, Jiquani's Machinarium) drops it; Metadata/Items/QuestItems/Gallows/Act3/SoulCoreConsumable in the main inventory until right-clicked" }
+    { "Item": "SoulCoreConsumable", "Label": "Use The Flame Core (10% Fire Res)", "Note": "Verified live 2026-10-11: Blackjaw (The Oubliette, Jiquani's Machinarium) drops it; Metadata/Items/QuestItems/Gallows/Act3/SoulCoreConsumable in the main inventory until right-clicked" },
+    { "Item": "Gallows/Act1/CrowbellSkillBook", "Label": "Use the Book of Specialisation (Crowbell)", "Note": "2026-10-12: every permanent-reward consumable below is a BaseItemTypes row under Metadata/Items/QuestItems/Gallows (read live)" },
+    { "Item": "Gallows/Act1/UnaSkillBook", "Label": "Use the Book of Specialisation (Una's Lute)" },
+    { "Item": "Gallows/Act2/SerpentClanCasterBossDrop", "Label": "Use the Book of Specialisation (Kabala)" },
+    { "Item": "Gallows/Act2/FinalLetterSkillBook", "Label": "Use the Book of Specialisation (Shambrin)" },
+    { "Item": "Gallows/Act3/QuadrillaSkillBook", "Label": "Use the Book of Specialisation (Silverfist)" },
+    { "Item": "Gallows/Act3/BogWitchSkillBook", "Label": "Use the Book of Specialisation (Ignagduk)" },
+    { "Item": "Gallows/Act4/BlindBeastSkillBook", "Label": "Use the Mist-shrouded Tome (+2 weapon set points)" },
+    { "Item": "Gallows/Act4/YamaBossSkillBook", "Label": "Use the Book of Specialisation (Yama)" },
+    { "Item": "Gallows/Interlude/FrozenPrisonerSkillBook", "Label": "Use the Warden's Ledger (Oswin)" },
+    { "Item": "Gallows/Interlude/InterludePart2SkillBook", "Label": "Use the Book of Specialisation (Risu)" },
+    { "Item": "Gallows/Interlude/IceTusksSkillBook", "Label": "Use the Book of Specialisation (Hilda)" },
+    { "Item": "Gallows/Interlude/InterludeFinalSkillBook", "Label": "Use the Book of Specialisation (the Hooded One)" },
+    { "Item": "Gallows/Interlude/TitansHeart", "Label": "Use Molten One's Gift (+5% maximum Life)" },
+    { "Item": "/SpiritDraught", "Label": "Use the skull (+Spirit)", "Note": "Gembloom Skull (Act 1, King in the Mists), Gemrot Skull, Gemcrust Skull (Interlude 3, Lythara)" },
+    { "Item": "Gallows/Act3/SnakeLadyPotionConsumable", "Label": "Drink one Venom Draught (a permanent choice from Servi)" },
+    { "Item": "Gallows/Act4/Tattoo", "Label": "Use the tattoo (permanent)", "Note": "Act4/Tattoo1..4 and Tattoo1_2..3_2; the Blank Tattoos (Act4/BlankTattoo) go to the Hinekora Totem first and do not match" }
   ],
   "Areas": {
+    "G1_2": [
+      { "Target": "radar:Beira of the Rotten (10% Cold Res)", "Label": "Beira of the Rotten (+10% Cold Res)", "DoneFlag": "G1_2UrchinHagBossKilled", "Note": "2026-10-12, Radar's place (her HagWitchArena tiles). Unverified live: QuestFlag G1_2UrchinHagBossKilled is the hag-witch kill by name" }
+    ],
+    "G1_11": [
+      { "Target": "radar:Crowbell Arena (+2 Passive)|radar:Crowbell Start (+2 Passive)", "Label": "Crowbell (Book of Specialisation)", "DoneFlag": "G1_11CrowbellBossKilled", "Note": "2026-10-12, Radar's places; QuestFlag G1_11CrowbellBossKilled. Unverified live" }
+    ],
+    "G1_12": [
+      { "Target": "radar:The King in the Mists (30 Spirit + Spirit Gem Level 4)", "Label": "Cleanse the Ritual Altars on the way; the King in the Mists (+30 Spirit) guards the last", "Note": "2026-10-12 review: a 'radar:Ritual' step (3 altar rooms) ended at the first altar reached, so it is not a step; the altars lie on the way to the King's arena. Unverified live" }
+    ],
+    "G1_13_1": [
+      { "Target": "radar:Una's Lute (+2 Passive)", "Label": "Una's Lute (Una's Book of Specialisation)", "DoneFlag": "UnaLuteQuestHaveLute", "Note": "UnaLute (Follow) takes over once picked up: 'Return it to her at Clearfell Encampment'" }
+    ],
+    "G1_15": [
+      { "Target": "radar:Candlemass (+20 Max Life)", "Label": "Candlemass (+20 Max Life)" },
+      { "Target": "radar:Throne of the Wolf", "Label": "Count Geonor (Throne of the Wolf)" }
+    ],
+    "P1_4": [
+      { "Target": "radar:Woven", "Label": "Wolvenhold: Oswin, the Dread Warden (Warden's Ledger)", "DoneFlag": "VisitedP1_5", "Note": "2026-10-12: Radar's 'Woven' row is Prison_entrance.tdt, the way into Wolvenhold (P1_5), a side area off the Interlude 1 story. The step ends once you have been inside (QuestFlag VisitedP1_5); Oswin's Warden's Ledger is in Use" }
+    ],
+    "P1_5": [
+      { "Target": "radar:Boss", "Label": "Oswin, the Dread Warden (Warden's Ledger)" }
+    ],
+    "P2_1": [
+      { "Target": "radar:5% Maximum Life", "Label": "The Molten Shrine: Molten One's Gift (+5% maximum Life)", "Note": "2026-10-12: Radar's three rows of that name are the forge entrance tiles; the Gift is a quest item (TitansHeart) the quest-item rule and Use pick up. Unverified live" },
+      { "Target": "radar:Boss (+2 Passive)", "Label": "Akthi and Anundr (Risu's Book of Specialisation)", "Note": "InterludePart2ScorpionAndWorm (Follow) leads back to Risu once they are dead" }
+    ],
+    "P2_6": [
+      { "Target": "radar:Pillars - Buff choice", "Label": "Orbala's Pillar: a permanent boon (one of seven, swappable)", "DoneFlag": "SekhemaPillarUsed", "Note": "2026-10-12: QuestFlag SekhemaPillarUsed, by name. Unverified live" }
+    ],
+    "P3_2": [
+      { "Target": "radar:Boss", "Label": "Lythara, the Wayward Spear (Gemcrust Skull: +40 Spirit)", "DoneFlag": "P3_2BossDefeated" }
+    ],
+    "P3_3": [
+      { "Target": "radar:Howling Caves (2+ Passive)", "Label": "Howling Caves: the Yeti (Ice Tusks for Hilda)", "DoneFlag": "VisitedP3_4", "Note": "2026-10-12: a side cave off the Glacial Tarn; the step ends once you have been inside. InterludePart3YetiQuadrilla (Follow) leads to Hilda after" },
+      { "Target": "radar:Boss", "Label": "Rakkar, the Frozen Talon", "DoneFlag": "P3_3BossDefeated" }
+    ],
+    "P3_4": [
+      { "Target": "radar:Boss (2+ Passive)", "Label": "The Yeti: its Ice Tusks (Hilda's Book of Specialisation)" }
+    ],
+    "G2_12": [
+      { "Target": "tile:*DreadnoughtArena*", "Label": "Jamanra, the Abomination (the Faridun Throne)", "Note": "2026-10-12: Radar keys its places as G2_12_1/G2_12_2, but the area is G2_12 now (WorldAreas), so the arena tile is named directly. Unverified live" }
+    ],
     "G4_3_1": [
-      { "Target": "radar:Map Piece (for expedition island)", "Label": "Torn Map Piece (Petrified Pirate, for Plunder's Point)", "Optional": true, "Note": "Research 2026-10-12: 1 of the 4 Torn Map Pieces Makoru needs for Plunder's Point (Verisium Anvil). Unverified spot: Radar's row is Name '*'" },
-      { "Target": "radar:Boss - Shark", "Label": "The Great White One: its Shark Fin (Kaimana's permanent blessing)", "Optional": true, "Note": "Research: Tribal Medicine; the fin is a quest item (the quest-item rule leads to it once dropped). Kaimana takes it in Ngakanu or on the Kingsmarch docks" },
-      { "Target": "radar:Crab Rare + T4 Support Gem", "Label": "Crabshell Cavern: rare crab (T4 Support Gem)", "Optional": true },
+      { "Target": "radar:Boss - Shark", "Label": "The Great White One: its Shark Fin (Kaimana's permanent blessing)", "Note": "Research: Tribal Medicine; the fin is a quest item (the quest-item rule leads to it once dropped). Kaimana takes it in Ngakanu or on the Kingsmarch docks" },
       { "Target": "radar:Singing Caverns", "Label": "The Singing Caverns" }
     ],
     "G4_3_2": [
-      { "Target": "radar:All Res Ammy", "Label": "Beckoning Clam: the Humming Pearl (Rog trades it for an amulet)", "Optional": true, "Note": "Research: survive the clam's ambush for the Humming Pearl (quest item), give it to Rog for a Pearlescent Amulet" },
       { "Target": "radar:Boss - Siren", "Label": "Diamora, Song of Death (weapon piece or Matiki)", "Note": "Research: bring a Thawing Charm. Drops a weapon piece (the Hooded One gathers it) or guards Matiki in a cage (random per league)" }
     ],
     "G4_7": [
-      { "Target": "radar:Map Piece (for expedition island)", "Label": "Torn Map Piece (Corpse Nest)", "Optional": true },
-      { "Target": "radar:Arena", "Label": "The Scourge of the Skies (weapon piece or Matiki)" }
+      { "Target": "entity:4_7/Objects/BossRoomMinimapIcon|radar:Arena", "UntilDead": "Bird2/MutantBird2NOUltimatum", "Label": "Into the arena: the Scourge of the Skies (weapon piece or Matiki)", "Note": "From route.live.json (F8 fix, 2026-10-12)" }
     ],
     "G4_5_1": [
-      { "Target": "radar:Flask buff - Need key", "Label": "Chapel: Goddess of Justice (30% flask recovery; needs the Chapel Key)", "Optional": true, "Note": "Research: the Chapel Key drops from monsters here; kill Forael, the Soulkeeper, then click the Goddess of Justice (life or mana flask recovery, changeable)" },
-      { "Target": "radar:Armoury (weapon chests)", "Label": "Armoury: pull the lever (weapon chests)", "Optional": true },
+      { "Target": "radar:Flask buff - Need key", "Label": "Chapel: Goddess of Justice (30% flask recovery; needs the Chapel Key)", "Note": "Research: the Chapel Key drops from monsters here; kill Forael, the Soulkeeper, then click the Goddess of Justice (life or mana flask recovery, changeable)" },
       { "Target": "radar:Dungeon entrance down", "Label": "Solitary Confinement" }
     ],
     "G4_5_2": [
-      { "Target": "radar:Rare Chest + Magic Chest", "Label": "Warden's Office chests", "Optional": true },
       { "Target": "radar:Boss", "Label": "Open the Fortified Door: the Prisoner (fire the ballista when he kneels)" }
     ],
     "G4_1_1": [
-      { "Target": "radar:Map Piece (for expedition island)", "Label": "Torn Map Piece (Flayed Sailor)", "Optional": true },
-      { "Target": "radar:T4 Support Gem", "Label": "Beast Pen: Mimok (T4 Support Gem)", "Optional": true },
-      { "Target": "radar:Boss (+2 Passives)", "Label": "The Blind Beast (Blank Greater Rune for Dannig)", "Optional": true, "Note": "Research: 0.3 gave +2 weapon set points here; 0.5.x drops a Blank Greater Rune (Dannig turns it into a Greater Rune of your choice)" },
       { "Target": "radar:Volcanic Warrens", "Label": "The Volcanic Warrens" }
     ],
     "G4_1_2": [
-      { "Target": "radar:2 Rares - Rare Ring matching last killed golem", "Label": "Magma Twins (rare ring)", "Optional": true },
       { "Target": "radar:Boss", "Label": "Krutog, Lord of Kin (weapon piece or Matiki)" }
     ],
     "G4_4_1": [
@@ -81,41 +144,34 @@
       { "Target": "radar:Boss - Yama", "Label": "Yama the White: the Silver Coin" }
     ],
     "G4_2_1": [
-      { "Target": "radar:Map Piece (for expedition island)", "Label": "Torn Map Piece (Smuggler's Stash)", "Optional": true },
-      { "Target": "radar:Rare + Orb of Alchemy", "Label": "Rare + Orb of Alchemy", "Optional": true },
       { "Target": "radar:Journey's end", "Label": "Journey's End" }
     ],
     "G4_2_2": [
-      { "Target": "radar:Boss - Captain Hartlin", "Label": "Captain Hartlin: the Verisium Ingots (to Dannig)" }
+      { "Target": "radar:Boss - Captain Hartlin", "Label": "Captain Hartlin: the Verisium Ingots (to Dannig)", "DoneFlag": "Act4CaptainHartlinKilled", "Note": "Verified live 2026-10-12: Act4CaptainHartlinKilled is set once he is dead; without it the step held the route in Journey's End after Omniphobia" }
     ],
     "G4_8b": [
-      { "Target": "radar:Bell - Exalted", "Label": "Golden Bell (3 Exalted Orbs)", "Optional": true },
-      { "Target": "radar:Bell - Regal", "Label": "Golden Bell (3 Regal Orbs)", "Optional": true },
       { "Target": "radar:Boss", "Label": "Torvian, Hand of the Saviour" }
     ],
     "G4_10": [
-      { "Target": "radar:Chest", "Label": "Excavated cache", "Optional": true },
       { "Target": "radar:Boss", "Label": "Benedictus, First Herald of Utopia" }
     ],
     "G4_11_1b": [
-      { "Target": "radar:Bleed Buff", "Label": "Kaimana (Shark Fin: a permanent blessing)", "Optional": true, "Note": "Research: the medicine woman's hut; with the Shark Fin, Tribal Medicine's own text leads to her" },
+      { "Target": "radar:Bleed Buff", "Label": "Kaimana (Shark Fin: a permanent blessing)", "Note": "Research: the medicine woman's hut; with the Shark Fin, Tribal Medicine's own text leads to her" },
       { "Target": "radar:Heart of the Tribe", "Label": "The Heart of the Tribe" }
     ],
     "G4_11_2": [
-      { "Target": "radar:3 Rare chests + 2 magic chests", "Label": "Meeting House chests", "Optional": true },
       { "Target": "radar:Boss", "Label": "Tavakai, the Chieftain (he flees at half life: follow him)" }
     ],
     "G3_3": [
-      { "Target": "radar:Mighty Silverfist (+2 Passive)|radar:Monkeee (Passive)", "UntilDead": "MonkeyChiefJungle", "Label": "Mighty Silverfist (+2 Passive)", "Optional": true, "Note": "Verified live 2026-10-11: Radar's 'Monkeee' row is Silverfist's spot (one step, not two); his monster is MonkeyChiefJungle, so the step ends on his kill and the route hides while you fight him" },
+      { "Target": "radar:Mighty Silverfist (+2 Passive)|radar:Monkeee (Passive)", "UntilDead": "MonkeyChiefJungle", "Label": "Mighty Silverfist (+2 Passive)", "Note": "Verified live 2026-10-11: Radar's 'Monkeee' row is Silverfist's spot (one step, not two); his monster is MonkeyChiefJungle, so the step ends on his kill and the route hides while you fight him" },
       { "Target": "radar:Infested Barrens", "Label": "Infested Barrens" }
     ],
     "G3_4": [
       { "Target": "radar:Venom Vial (Pick Bonus)", "Label": "Take the Venom Vial" },
-      { "Target": "radar:Rare Sarcophagus + T3 Support Gem", "Label": "Rare Sarcophagus (T3 Support Gem)", "Optional": true },
       { "Target": "radar:Jungle Ruins", "Label": "Back to the Jungle Ruins" }
     ],
     "G3_2_1": [
-      { "Target": "radar:The Azak Bog", "Label": "Side quest: The Azak Bog (Ignagduk, +30 Spirit)", "Optional": true },
+      { "Target": "radar:The Azak Bog", "Label": "Side quest: The Azak Bog (Ignagduk: Book of Specialisation, Gemrot Skull)", "DoneFlag": "G3_7IgnagdukBogWitchKilled", "Note": "2026-10-12: QuestFlag G3_7IgnagdukBogWitchKilled ends the detour; BogWitchSkillBook (Book of Specialisation) is hers" },
       { "Target": "radar:Chimeral Wetlands", "Label": "Chimeral Wetlands" }
     ],
     "G3_5": [
@@ -124,7 +180,7 @@
     ],
     "G3_6_1": [
       { "Target": "click:3_6_1/Objects/KeyPedestal", "Carrying": "VaalKeyGem", "SkipIfNone": true, "Label": "Place the Soul Core in the Stone Altar", "Note": "Verified live 2026-10-11: cores are VaalKeyGem<n> in MainInventory once picked up; the quest stays at 43 while you carry the second one, so the inventory decides. Used altars turn untargetable (KeyPedestal_Entrance)" },
-      { "Target": "entity:Monsters/BlackJawSuperunique/objects/BossRoomMinimapIcon|radar:The Oubliette (10% Fire Res)", "UntilDead": "BlackJawSuperunique/BlackJaw", "Label": "The Oubliette: Blackjaw (10% Fire Res)", "Optional": true, "Note": "Verified live 2026-10-11: Radar's Oubliette row is the boss-room door tile; Blackjaw (BlackJaw@37) stands ~145 cells past it (the room icon ~(2012,455)) and drops The Flame Core (see Use). The user: not the boss himself as the target (marker on him while fighting, then on his body)" },
+      { "Target": "entity:Monsters/BlackJawSuperunique/objects/BossRoomMinimapIcon|radar:The Oubliette (10% Fire Res)", "UntilDead": "BlackJawSuperunique/BlackJaw", "Label": "The Oubliette: Blackjaw (10% Fire Res)", "Note": "Verified live 2026-10-11: Radar's Oubliette row is the boss-room door tile; Blackjaw (BlackJaw@37) stands ~145 cells past it (the room icon ~(2012,455)) and drops The Flame Core (see Use). The user: not the boss himself as the target (marker on him while fighting, then on his body)" },
       { "Target": "radar:Jiquani's Sanctum", "Label": "Keep exploring: the next Soul Core shows when it loads" }
     ],
     "G3_6_2": [
@@ -138,11 +194,7 @@
       { "Target": "radar:Ignagduk, The Bog Witch (+30 Spirit)", "Label": "Ignagduk, the Bog Witch (+30 Spirit)" }
     ],
     "G3_8": [
-      { "Target": "radar:The Molten Vault", "Label": "The Molten Vault (Mektul, reforging bench)", "Optional": true, "DoneFlag": "G3_9VaalForgeMasterKilled", "Note": "Verified live 2026-10-11: QuestFlag G3_9VaalForgeMasterKilled is set once Mektul is dead; without it the step sent the player back after RaidTheTreasureVault was done" },
       { "Target": "radar:Apex of Filth", "Label": "Apex of Filth" }
-    ],
-    "G3_9": [
-      { "Target": "radar:Mektul, The Forgemaster (Reforging Bench)", "Label": "Mektul, the Forgemaster" }
     ],
     "G3_11": [
       { "Target": "radar:Queen of Filth", "Label": "The Queen of Filth" }
@@ -154,41 +206,36 @@
       { "Target": "radar:Aggorat", "Label": "Aggorat" }
     ],
     "G3_16": [
-      { "Target": "radar:Sacrificial Dagger (+2 Passive)", "Label": "Sacrificial Dagger (+2 Passive)", "Optional": true },
+      { "Target": "radar:Sacrificial Dagger (+2 Passive)", "Label": "Sacrificial Dagger (+2 Passive)" },
       { "Target": "radar:The Black Chambers", "Label": "The Black Chambers" }
     ],
     "G3_17": [
       { "Target": "radar:Arena", "Label": "Doryani, Royal Thaumaturge" }
     ],
     "G2_10_1": [
-      { "Target": "radar:Artificers Orb", "Label": "Faridun War Cache (Artificer's Orb)", "Optional": true },
       { "Target": "radar:Mawdun Mine", "Label": "Mawdun Mine" }
     ],
     "G2_10_2": [
       { "Target": "radar:Munitions Bunker", "Label": "Rudja (Munitions Bunker)" }
     ],
     "G2_2": [
-      { "Target": "radar:Bell Chest (Skill Gem Level 6)", "Label": "Bell Chest (Uncut Skill Gem)", "Optional": true },
-      { "Target": "radar:Prison of the Disgraced (Djinn Barya)", "Label": "Balbala (Djinn Barya)", "Optional": true },
+      { "Target": "radar:Prison of the Disgraced (Djinn Barya)", "Label": "Balbala (Djinn Barya: the Trial of the Sekhemas, your first Ascendancy points)" },
       { "Target": "radar:The Halani Gates", "Label": "The Halani Gates" }
     ],
     "G2_5_1": [
-      { "Target": "radar:Rare Chest + T2 Support Gem", "Label": "Rare Chest + T2 Support Gem", "Optional": true },
       { "Target": "radar:The Bone Pits", "Label": "The Bone Pits" }
     ],
     "G2_5_2": [
       { "Target": "radar:Blackrib Pit", "Label": "Iktab and Ekbab (Blackrib Pit)" }
     ],
     "G2_4_1": [
-      { "Target": "radar:Kabala (+2 Passive)", "Label": "Kabala (+2 Passive)", "Optional": true },
+      { "Target": "radar:Kabala (+2 Passive)", "Label": "Kabala (+2 Passive)" },
       { "Target": "radar:The Lost City", "Label": "The Lost City" }
     ],
     "G2_4_2": [
-      { "Target": "radar:Golden Tomb (Spirit Gem Level 7)", "Label": "Golden Tomb (Spirit Gem)", "Optional": true },
       { "Target": "radar:Buried Shrines", "Label": "Buried Shrines" }
     ],
     "G2_4_3": [
-      { "Target": "radar:Elemental Offering (Res Ring)", "Label": "Elemental Offering (Res Ring)", "Optional": true },
       { "Target": "radar:The Heart of Keth", "Label": "Azarian (The Heart of Keth)" }
     ],
     "G2_6": [
@@ -201,14 +248,14 @@
       { "Target": "radar:Dais of Reckoning", "Label": "Zalmarath (Dais of Reckoning)" }
     ],
     "G2_8": [
-      { "Target": "radar:Fallen Dekhara (+2 Passive)", "Label": "Fallen Dekhara (+2 Passive)", "Optional": true },
+      { "Target": "radar:Fallen Dekhara (+2 Passive)", "Label": "Fallen Dekhara: the final letter (Shambrin's +2 weapon set points)" },
       { "Target": "radar:Path of Mourning", "Label": "Path of Mourning" }
     ],
     "G2_9_1": [
       { "Target": "radar:The Spires of Deshar", "Label": "The Spires of Deshar" }
     ],
     "G2_9_2": [
-      { "Target": "radar:Sisters of Garukhan (10% Lightning Res)", "Label": "Sisters of Garukhan (10% Lightning Res)", "Optional": true },
+      { "Target": "radar:Sisters of Garukhan (10% Lightning Res)", "Label": "Sisters of Garukhan (+10% Lightning Res)" },
       { "Target": "radar:Arena", "Label": "Tor Gul (Arena)" }
     ]
   }
