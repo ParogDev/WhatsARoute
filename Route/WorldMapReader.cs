@@ -124,7 +124,7 @@ public sealed class WorldMapReader
         if (Mode != View.Travel) return;
         // Every town node on one spot: no wheels, this is the port (Act 4, Makoru's sailing map), and the islands' own
         // nodes are what you click. Seen 2026-10-11: Kingsmarch's two nodes share a centre, each island is one node.
-        if (Stops.Count > 0 && Stops.TrueForAll(s => Vector2.Distance(s.ScanCenter, Stops[0].ScanCenter) < 4))
+        if (Stops.Count > 1 && Stops.TrueForAll(s => Vector2.Distance(s.ScanCenter, Stops[0].ScanCenter) < 4))
         {
             Port = true;
             Stops.Clear();
