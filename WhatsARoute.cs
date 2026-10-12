@@ -1215,6 +1215,9 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                     break;
                 case ObjectiveKind.Sail:
                     spec = "npc:Makoru|npc:Rhodri" + NpcPlace("Makoru");   // the ship's captain opens the sailing map
+                    // On the island the plan sails to, the crew stands on the ship you landed with: the island's steps lead
+                    // (2026-10-12, the user on the Isle of Kin: "it tells me to go to Makoru instead, wrong").
+                    if (_questObj is { } sailPlan && RouteBook.LikeAny(_areaRaw, sailPlan.Area)) strong = false;
                     break;
                 case ObjectiveKind.PickUp:
                     spec = o.Subject is { } it ? $"item:{it}|{QuestItemSpec}" : QuestItemSpec;
@@ -1427,6 +1430,13 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 _resolver.Resolve(GameController, _book, "transition:", _areaRaw, _resolved);
                 _resolved.ViaPortal = portal;   // a portal still beats walking out of the arena first
                 _resolved.Label = $"Way out: {target} can't be reached from here";
+                if (_resolved.Goals.Count == 0)
+                {
+                    // Landed on an Act 4 island: the ship's rope ladder (a quest object, not an area transition) is the way
+                    // onto the island (2026-10-12, the user on the Isle of Kin: "get down near the ladder").
+                    _resolver.Resolve(GameController, _book, "entity:ShipRopeLadderTransition", _areaRaw, _resolved);
+                    _resolved.Label = _resolved.Goals.Count > 0 ? $"Climb down the rope ladder: {target}" : $"Way out: {target} can't be reached from here";
+                }
                 if (_resolved.Goals.Count == 0) _resolved.Why = $"cut off from '{target}' and no exit seen on this part of the area";
                 spec = "exit-from:" + spec;
             }
