@@ -43,6 +43,8 @@ public sealed class RouteStateDto
     public string? PlayerTile { get; set; }
     /// <summary>Places recorded in this area instance (sightings.json has them per area).</summary>
     public int Sightings { get; set; }
+    /// <summary>The agent routes (route.agent): the one leading or waiting, the parked one, the queue, the current step's done rule.</summary>
+    public global::WhatsARoute.Route.AgentRouteStateDto? AgentRoute { get; set; }
 }
 
 public sealed class QuestReadDto

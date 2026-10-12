@@ -65,6 +65,10 @@ public sealed class HeadsUpCapture
     public readonly List<string> Events = new();
     public readonly List<string> Dialogs = new();
     public string? ObjectiveBefore;
+    /// <summary>An F8 press's "Watch what I do next": its bridge seq (the capture goes out as feedback.capture with this Ref).</summary>
+    public long? Ref;
+    /// <summary>Ends by itself after this long (F7: 180 s; an F8 watch-next: 60 s).</summary>
+    public double TimeoutSec = Timeout;
 
     /// <summary>A change the capture waits on (quest, flag, item, dialog): it ends a few quiet seconds after the last one.</summary>
     public void Changed(double now)
@@ -76,7 +80,7 @@ public sealed class HeadsUpCapture
     /// <summary>"settled" or "timeout" when it should end now, else null.</summary>
     public string? ShouldEnd(double now)
     {
-        if (now - StartedAt >= Timeout) return "timeout";
+        if (now - StartedAt >= TimeoutSec) return "timeout";
         if (FirstChangeAt is { } f && (now - LastChangeAt >= SettleSeconds || now - f >= MaxAfterFirstChange)) return "settled";
         return null;
     }

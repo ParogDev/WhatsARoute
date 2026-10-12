@@ -10,10 +10,12 @@ deferred: load the ones you need in one call, e.g. ToolSearch `select:mcp__exile
 
 ## How the loop works
 
-1. In game the player presses F8 (the plugin's Feedback hotkey), picks a verdict (Wrong place, Not advancing, Missing step)
-   or types a note. The plugin writes it to `feedback.jsonl` and publishes it through the AI Bridge as a `feedback` event
-   (`AIBridge.Publish`), with the route's whole state. Its trace (area, quest state changes with their text, objective,
-   door, boss-fight, boss-dead, quest-item-taken, route-reloaded) goes out the same way as `route` events.
+1. In game the player presses F8 (the plugin's Feedback hotkey). The compose panel opens with what the plugin noticed
+   preselected; the player picks what is wrong (chips), what it is about (scope), optionally a note, where to look and
+   hints, and sends. The plugin writes it to `feedback.jsonl` and publishes it through the AI Bridge as a `feedback`
+   event with `Event: "f8"` (`AIBridge.Publish`), with the route's whole state (`State`). Read **The press** below for
+   its fields. Its trace (area, quest state changes with their text, objective, door, boss-fight, boss-dead,
+   quest-item-taken, route-reloaded, agent-route) goes out the same way as `route` events.
 2. The F8 dispatcher (MCP server, `Dispatch/FeedbackDispatcher.cs`, on the shared HTTP server) claims the press exactly
    once, shows "Claude is on it" above the route card, writes your brief (`handlers\<seq>\brief.md`: the press, the state,
    the trace since the previous press, the last answers) and starts you in a scaffolding worktree,
@@ -21,12 +23,71 @@ deferred: load the ones you need in one call, e.g. ToolSearch `select:mcp__exile
    `.claude\worktrees`). You run as a background session with Remote Control named "F8 #<seq>: <note> (<area>)", which
    the user can watch in claude.ai/code and the Claude app (headless `claude -p` when that can't start). One handler runs
    at a time; later presses wait.
-3. Your **final message** is shown above the card (~25 s). Make it one or two short plain sentences: what changed and what
-   the player does now. For a fix that takes longer than a minute, say so first with MCP
-   `feedback_reply seq=<seq> status=working text="..."` (it stays up until your answer).
+3. The AI Bridge shows the press's progress at the top of the screen (the work strip: a dot per phase, a stage word)
+   and raises a toast only at the moments that matter. Your **final message** becomes the `DONE #<seq>` toast (20 s).
+   Make it one or two short plain sentences: what changed and what the player does now. Report your stages as you go
+   (**Stages** below).
 
 MCP tools (server `exileapi`, shared HTTP server): `route_state` (the plugin live), `pubsub_events kinds=["route"]`
-(more trace), `get_area`, `get_entities`, `explore_object`, `run_csharp`, `mark_reviewed`, `feedback_reply`.
+(more trace), `pubsub_wait`, `get_area`, `get_entities`, `explore_object`, `run_csharp`, `mark_reviewed`,
+`feedback_reply`, `route_agent`, `ask_user`, `await_change`.
+
+## The press (Event "f8")
+
+The press's own fields say what the player means; use them to skip work, not only to start it.
+
+- `Flags`: what is wrong, never empty. `wrong-place` (the marker or path leads somewhere wrong), `not-advancing` (the
+  step should be done but the card still shows it), `missing-step` (something must be done here that the route lacks),
+  `cant-reach` (target right, unreachable), `wrong-words` (card text), `wrong-marker` (marker on the wrong thing),
+  `no-marker` (nothing marked to click), `too-early` (shown before it can be done), `already-done` (done; the route did
+  not notice), `odd-path` (the path goes a strange way), `something-else` (read the note), `works` (positive signal; with
+  other flags or a note it is an ordinary press).
+- `Suggested[]`: what the plugin measured at the press (`quest-moved`, `target-missing`, `blocked`, `stuck`,
+  `marker-far`, `boss`, `town`), each with `Reason` and the raw `Evidence`. `Certain` ones were preselected. `Kept`
+  is what the player left on: **a Certain suggestion with `Kept: false` is the player saying it is not that** (e.g. a
+  rejected `blocked` means the pathing is fine: don't spend time confirming it). A kept one is confirmed by them.
+- `Scope`: `step` (default), `panel` (`ScopePanel` names the open panel, e.g. "Inventory" or "NPC dialogue (Makoru)"),
+  `area`, `marker`, `route`. Look there first.
+- `WatchFor`: the player's own "where should Claude look", free text. Treat it as the first place to look.
+- `Hints[]`: `panel-only` (only the open panel matters), `path-ok` (**pathing is fine: skip all path and reachability
+  checks**), `watch-next` (see below).
+- `WatchNext: true`: a capture of what the player does next follows as a `feedback.capture` event whose `data.Ref` is
+  your `<seq>` (the heads-up `Capture` shape below). Wait for it with MCP `pubsub_wait kinds=["feedback.capture"]`
+  (timeout up to 90 s; take the one with `Ref = <seq>`) before you decide; it ends 60 s after the press at the latest.
+- `Ref` + `Verdict`: the press is about an earlier one (#`Ref`). `works`: the earlier fix is confirmed (usually no
+  session is started for it). `still-wrong`: the earlier fix did not do it; your brief leads with that press's answer.
+  Start from what it changed.
+- `Note`, `State`, `Area`, `Target`, `Label`, `StepIndex`, `PlayerGrid` as before.
+
+## Stages (report them with `feedback_reply seq=<seq> stage=<Stage> text="..."`)
+
+The bridge's strip shows where the press is. The server infers some stages (a game read moves you to `Investigating`,
+`mark_reviewed` to `Reviewing`), never backwards; an explicit stage wins. Report what it can't see:
+
+- `Investigating` when you start looking (if you read files first, before any game read).
+- `Fixing` when you start changing route data or code (the server cannot see edits: **always report it**).
+- `LiveFix` right after you write `route.live.json`, with `text` = what the player should try now (it becomes the
+  `TRY IT NOW` toast).
+- `Reviewing` (code review), `Merging` (PR open, merge-on-green running) if the inference missed them.
+- Your final message ends it (`Done`); a failure you report with `stage=Failed text="<why, what is kept>"`.
+
+Keep `text` short and in the player's language. `status=` (queued, claimed, working, done, failed) still works but
+`stage=` is what the strip shows.
+
+## Needing the player: where, what, which
+
+- **Where** the player should be is a route step: MCP `route_agent action=set` with 1-8 steps (`Target` in route.json's
+  target syntax, `Label`, `Note`, `Done {Kind: Near | Area | Click | Manual | Flag | Dead | Agent, Value, Within}`,
+  optional `Highlight` and `WithinCells`). It takes over the route card in your hue (the normal route is only paused),
+  waits for a calm moment (no combat, no boss fight), and hands back when its steps are done, its TTL passes (default
+  600 s), you end it (`action=end`), or the player presses Back to route. `action=wait` blocks on its progress
+  (`started`, `arrived`, `step-done`, `left`, `done`, ...); `action=step` marks the current step done (`Done.Kind Agent`).
+  `HandBack: Hold` keeps the last step on the card ("Stay here: <note>") up to 60 s while you read something.
+- **What** to do there is an instruction: `await_change` with `instruction`.
+- **Which** (a choice) is an ask: `ask_user`.
+
+Never say "go to X" in an instruction or an ask: that is a route step. While you hold an ask, an instruction or a
+Manual route step, the strip shows the player that you need them.
 
 ## The user's rules for the route
 
@@ -70,7 +131,7 @@ Answer in one line: what the route now does at that point.
 
 ## Fixing the route
 
-- **Quick fixes go into the live file first**, so the player sees them within seconds:
+- **Quick fixes go into the live file first** (then report `stage=LiveFix`), so the player sees them within seconds:
   `%LOCALAPPDATA%\Hexile\WhatsARoute\route.live.json` (`Quests` first, `Areas` replace route.json's areas, `Message`
   shows above the card), reloaded within 0.5 s. Another agent may edit it too: read it right before you write and change
   only your own entries. Write it with a shell heredoc or the Write tool (it is outside git).
@@ -107,9 +168,12 @@ Answer in one line: what the route now does at that point.
 ## Ending
 
 - Never send game input. Never edit HUD config files while the HUD runs.
+- End your agent route (`route_agent action=end`) before your final message unless the player should keep following
+  it. A route you leave keeps leading after your final reply (the press going `Done` does not end it); its `TtlSec` ends
+  it, or `owner-gone` once the bridge's work list shows your session's own item final for 10 s.
 - No restarts for a route fix: the dispatcher's reload is enough. A plugin change that needs the bridge or the MCP server is not a
   handler's job: say so in your final message and stop.
-- Fire and forget: your turn ending is the end. The dispatcher reads your last message, shows it on the card and stops
+- Fire and forget: your turn ending is the end. The dispatcher reads your last message, shows it as the press's answer (the `DONE` toast) and stops
   your session at once (its transcript stays viewable). Never wait for input; nobody follows up in this session (a new
   press gets a new session).
 - Leave nothing half-done: merged (the dispatcher syncs the HUD), or nothing changed. The dispatcher then removes your worktree; one that

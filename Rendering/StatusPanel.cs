@@ -41,7 +41,33 @@ public sealed class StatusPanel
         public float PathLen;           // world units along the whole route
         public int PathCells;
         public string? Detail;          // the dev dump, when wanted (drawn under the card, wrapped)
+        // An agent route on the card (AgentRouteView, research/f8-agent-ux.md 4.1): a byline row above the title in the owner's
+        // hue, the bar in the hue, its own meta and state, the pills (Did it, Back to route) on a row of their own, the parked
+        // route's pill at the meta row's right end, and the arrival / hand-back wash.
+        public string? Byline;          // "CLAUDE 2'S ROUTE - F8 #12"
+        public Vector3 BylineHue;
+        public bool AgentOnCard;        // the bar and the path pair are the hue (the byline alone also shows for the 1.5 s DONE / ENDED tail)
+        public string? MetaOverride;    // "<note>  ·  1 of 3"
+        public string? StateOverride;   // "Click the lever, then press Did it"
+        public bool DidIt;              // the primary pill (a Manual step)
+        public bool BackToRoute;        // the secondary pill
+        public string? ParkedText;      // "Claude 2's route (2 left)": the parked route's pill, click = resume
+        public Vector3 ParkedHue;
+        public double WashAt;           // when the card last changed hands (plugin clock); washed in WashHue for 0.9 s
+        public Vector3 WashHue;
     }
+
+    /// <summary>The card's current (eased) size: the compose panel and the agent pills anchor under it.</summary>
+    public float Height => _h;
+    public float Width => _w;
+
+    // The card's controls (drawn here, the mouse handled by the plugin's pills window over these rects, WhatsARoute.AgentRoute.cs):
+    // hover flags in (set by the plugin from last frame's rects), rects out. HasControls: any of them is on the card now.
+    public bool HoverByline, HoverDidIt, HoverBack, HoverParked;
+    public Vector2 BylineMin, BylineMax, DidItMin, DidItMax, BackMin, BackMax, ParkedMin, ParkedMax;
+    public bool HasControls => _byline.Length > 0 || _last.DidIt || _last.BackToRoute || _last.ParkedText != null;
+    private const string DidItLabel = "Did it", BackLabel = "Back to route";
+    private const double WashSec = 0.9;
 
     private const float WorldPerMetre = 10.87f;   // one grid cell
     private const double FadeSec = 0.35;
@@ -64,7 +90,9 @@ public sealed class StatusPanel
     private bool _dotsShown;
     private int _dotIndex, _dotCount;
     private ulong _dotDone;
-    private float _titleSize, _metaSize, _stateSize;
+    private float _titleSize, _metaSize, _stateSize, _bylineSize;
+    private string _byline = "";
+    private float _parkedW, _didItW, _backW;   // the parked pill's text, Did it and Back to route at the meta size
     private Vector2 _titleW, _distW, _metaW, _stateW, _detailW;
     private float _targetW, _targetH, _w, _h;
     private double _titleAt, _stateAt, _shownAt, _lastTime;
@@ -104,16 +132,34 @@ public sealed class StatusPanel
         var min = pos;
         var max = pos + new Vector2(MathF.Round(_w), MathF.Round(_h));
 
-        // Card: fill, hairline, accent bar (breathing while the route is still working something out).
+        // Card: fill, hairline, accent bar (breathing while the route is still working something out; the owner's hue while an
+        // agent route is on the card), and the wash when the card changes hands (the hue on take-over, gold on hand-back).
         dl.AddRectFilled(min, max, Glow.Col(CardFill, 0.84f * appear), 6f);
+        var washT = (time - _last.WashAt) / WashSec;
+        if (washT is >= 0 and < 1) dl.AddRectFilled(min, max, Glow.Col(_last.WashHue, 0.35f * (float)(1 - washT) * appear), 6f);
         dl.AddRect(min, max, Glow.Col(glow, 0.30f * appear), 6f, ImDrawFlags.None, 1f);
         var busy = _tone == Tone.Busy ? 0.55f + 0.45f * (0.5f + 0.5f * MathF.Sin((float)(time * Math.PI * 2 / 1.6))) : 1f;
-        var barCol = _tone switch { Tone.Break => ToneBreak, Tone.Info => ToneInfo, _ => glow };
+        var barCol = _last.AgentOnCard ? _last.BylineHue : _tone switch { Tone.Break => ToneBreak, Tone.Info => ToneInfo, _ => glow };
         dl.AddRectFilled(new Vector2(min.X, min.Y + 6f), new Vector2(min.X + Bar, max.Y - 6f), Glow.Col(barCol, 0.9f * busy * appear), 1.5f);
 
         // Title row: the pin, the objective, the distance on the right.
         var x = min.X + PadX;
         var y = min.Y + PadY;
+        if (_byline.Length > 0)
+        {
+            // The agent route's byline: who leads the card now (a who-dot on an ink ring and tracked caps in the owner's hue;
+            // hovering it asks WHY, through the plugin's pills window over BylineMin..Max).
+            var dc = new Vector2(x + PinR + 1f, y + _bylineSize * 0.5f);
+            dl.AddCircleFilled(dc, 4.5f, Glow.Col(ToastFamily.Ink, 0.85f * appear), 14);
+            dl.AddCircleFilled(dc, 3f, Glow.Col(_last.BylineHue, appear), 14);
+            var bx = x + PinR * 2f + 9f;
+            ToastFamily.Tracked(dl, font, _bylineSize, new Vector2(bx, y), Glow.Col(_last.BylineHue, (HoverByline ? 1f : 0.92f) * appear), _byline, ToastFamily.MsgTrack);
+            var bw = ToastFamily.TrackedWidth(font, _bylineSize, _byline, ToastFamily.MsgTrack);
+            if (HoverByline) dl.AddLine(new Vector2(bx, y + _bylineSize + 1f), new Vector2(bx + bw, y + _bylineSize + 1f), Glow.Col(_last.BylineHue, 0.6f * appear), 1f);
+            BylineMin = new Vector2(x, y - 2f); BylineMax = new Vector2(bx + bw, y + _bylineSize + 2f);
+            y += _bylineSize + 3f;
+        }
+        else BylineMin = BylineMax = default;
         var cy = y + _titleSize * 0.5f;
         dl.AddCircle(new Vector2(x + PinR + 1f, cy), PinR + 1.6f, Glow.Col(glow, 0.35f * appear), 16, 2.2f);
         dl.AddCircle(new Vector2(x + PinR + 1f, cy), PinR, Glow.Col(core, 0.9f * appear), 16, 1.3f);
@@ -125,12 +171,28 @@ public sealed class StatusPanel
             dl.AddText(font, _titleSize, new Vector2(max.X - PadX - _distW.X, y), Glow.Col(core, 0.95f * appear), _dist);
         y += _titleSize + 3f;
 
-        // Meta row: the area (and how the target was chosen), the step dots on the right.
+        // Meta row: the area (and how the target was chosen), the parked agent route's pill and the step dots on the right.
         dl.AddText(font, _metaSize, new Vector2(tx, y), Glow.Col(TextDim, 0.9f * appear), _meta);
+        var dotsRight = max.X - PadX;
+        if (_last.ParkedText is { } parked)
+        {
+            // "o Claude 2's route (2 left)": a hue dot and the text in a hairline pill; click resumes it (the plugin's window).
+            var ph = _metaSize + 6f;
+            var pw = 12f + _parkedW + 16f;
+            var pmin = new Vector2(max.X - PadX - pw, y + _metaSize * 0.5f - ph * 0.5f);
+            var pmax = pmin + new Vector2(pw, ph);
+            dl.AddRectFilled(pmin, pmax, Glow.Col(HoverParked ? _last.ParkedHue : CardFill, (HoverParked ? 0.18f : 0.6f) * appear), ph * 0.5f);
+            dl.AddRect(pmin, pmax, Glow.Col(HoverParked ? _last.ParkedHue : TextMuted, (HoverParked ? 0.8f : 0.5f) * appear), ph * 0.5f);
+            dl.AddCircleFilled(new Vector2(pmin.X + 9f, pmin.Y + ph * 0.5f), 3f, Glow.Col(_last.ParkedHue, appear), 12);
+            dl.AddText(font, _metaSize, new Vector2(pmin.X + 16f, pmin.Y + 3f), Glow.Col(HoverParked ? TextWarm : TextDim, appear), parked);
+            ParkedMin = pmin; ParkedMax = pmax;
+            dotsRight = pmin.X - 10f;
+        }
+        else ParkedMin = ParkedMax = default;
         if (_dotsShown)
         {
             var dy = y + _metaSize * 0.5f;
-            var dx = max.X - PadX - DotR;
+            var dx = dotsRight - DotR;
             for (var k = _dotCount - 1; k >= 0; k--, dx -= DotGap)
             {
                 var c = new Vector2(dx, dy);
@@ -151,6 +213,41 @@ public sealed class StatusPanel
             y += 5f;
             var col = _tone switch { Tone.Warn => glow, Tone.Break => ToneBreak, Tone.Info => ToneInfo, Tone.Busy => ToneInfo, _ => TextDim };
             dl.AddText(font, _stateSize, new Vector2(tx, y + (1f - stateSnap) * 4f), Glow.Col(col, (0.3f + 0.7f * stateSnap) * appear), _state, _targetW - PadX - (tx - min.X));
+            y += _stateW.Y;
+        }
+
+        // The agent route's pills, on a row of their own at the bottom right: Back to route (secondary: a hairline, the warm
+        // text at 85%, an accent tint on hover) and, for a Manual step, Did it (primary: accent fill, ink text, a check) to its
+        // left. The plugin's pills window takes the clicks over DidItMin..Max / BackMin..Max.
+        DidItMin = DidItMax = BackMin = BackMax = default;
+        if (_last.DidIt || _last.BackToRoute)
+        {
+            y += 6f;
+            var ph = _metaSize + 8f;
+            var rx = max.X - PadX;
+            if (_last.BackToRoute)
+            {
+                var bw = _backW + 20f;
+                var bmin = new Vector2(rx - bw, y);
+                var bmax = bmin + new Vector2(bw, ph);
+                dl.AddRectFilled(bmin, bmax, Glow.Col(HoverBack ? ToastFamily.Accent : ToastFamily.Line, (HoverBack ? 0.18f : 0.5f) * appear), 0f);
+                dl.AddRect(bmin, bmax, Glow.Col(HoverBack ? ToastFamily.Accent : ToastFamily.Line, (HoverBack ? 0.8f : 1f) * appear), 0f);
+                dl.AddText(font, _metaSize, new Vector2(bmin.X + 10f, y + 4f), Glow.Col(TextWarm, (HoverBack ? 1f : 0.85f) * appear), BackLabel);
+                BackMin = bmin; BackMax = bmax;
+                rx = bmin.X - 8f;
+            }
+            if (_last.DidIt)
+            {
+                var dw = _didItW + 20f + 12f;
+                var dmin = new Vector2(rx - dw, y);
+                var dmax = dmin + new Vector2(dw, ph);
+                dl.AddRectFilled(dmin, dmax, Glow.Col(ToastFamily.Accent, (HoverDidIt ? 1f : 0.85f) * appear), 0f);
+                var ink = Glow.Col(ToastFamily.InkOnAccent, appear);
+                ToastFamily.Check(dl, new Vector2(dmin.X + 14f, y + ph * 0.5f), ink);
+                dl.AddText(font, _metaSize, new Vector2(dmin.X + 22f, y + 4f), ink, DidItLabel);
+                dl.AddText(font, _metaSize, new Vector2(dmin.X + 22.6f, y + 4f), ink, DidItLabel);
+                DidItMin = dmin; DidItMax = dmax;
+            }
         }
 
         // Detail, under the card: the dev dump, small and muted, wrapped to the card's width.
@@ -171,8 +268,10 @@ public sealed class StatusPanel
             : i.QuestTarget ? area + "  ·  quest"
             : i.StepIndex >= 0 && i.StepCount > 12 ? area + "  ·  step " + (i.StepIndex + 1) + " of " + i.StepCount
             : area;
-        var (state, tone) = StateFor(i);
+        if (i.MetaOverride is { Length: > 0 } mo) _meta = mo;
+        var (state, tone) = i.StateOverride is { Length: > 0 } so ? (so, Tone.Info) : StateFor(i);
         _state = state; _tone = tone;
+        _byline = i.Byline ?? "";
         _dist = !i.PathReady ? "" : i.PathCells <= 4 ? "here" : _metres >= 1000 ? (_metres / 1000f).ToString("0.0") + " km" : _metres + " m";
     }
 
@@ -250,24 +349,34 @@ public sealed class StatusPanel
         _titleSize = MathF.Round(_fontSize * 1.2f);
         _metaSize = MathF.Round(_fontSize * 0.88f);
         _stateSize = MathF.Round(_fontSize * 0.95f);
+        _bylineSize = MathF.Round(_fontSize * 0.75f);
         var textX = PadX + PinR * 2f + 9f;
         var inner = MathF.Max(80f, maxWidth - textX - PadX);
+        _byline = _byline.Length > 0 ? ToastFamily.ClipTracked(_byline, font, _bylineSize, ToastFamily.MsgTrack, inner) : _byline;
+        var bylineW = _byline.Length > 0 ? ToastFamily.TrackedWidth(font, _bylineSize, _byline, ToastFamily.MsgTrack) : 0f;
 
         _distW = _dist.Length > 0 ? font.CalcTextSizeA(_titleSize, float.MaxValue, 0f, _dist) : Vector2.Zero;
         var titleRoom = inner - (_dist.Length > 0 ? _distW.X + 12f : 0f);
         _title = Fit(font, _titleSize, _title, titleRoom);
         _titleW = font.CalcTextSizeA(_titleSize, float.MaxValue, 0f, _title);
-        var dotsW = _dotsShown ? _dotCount * DotGap + 10f : 0f;
+        _parkedW = _last.ParkedText is { } pt ? font.CalcTextSizeA(_metaSize, float.MaxValue, 0f, pt).X : 0f;
+        var parkedW = _last.ParkedText != null ? 12f + _parkedW + 16f + 10f : 0f;
+        var dotsW = (_dotsShown ? _dotCount * DotGap + 10f : 0f) + parkedW;
         _meta = Fit(font, _metaSize, _meta, inner - dotsW);
         _metaW = font.CalcTextSizeA(_metaSize, float.MaxValue, 0f, _meta);
+        _didItW = _last.DidIt ? font.CalcTextSizeA(_metaSize, float.MaxValue, 0f, DidItLabel).X : 0f;
+        _backW = _last.BackToRoute ? font.CalcTextSizeA(_metaSize, float.MaxValue, 0f, BackLabel).X : 0f;
+        var pillsW = (_last.DidIt ? _didItW + 32f + 8f : 0f) + (_last.BackToRoute ? _backW + 20f : 0f);
+        var pills = _last.DidIt || _last.BackToRoute;
 
-        var rowW = MathF.Max(_titleW.X + (_dist.Length > 0 ? _distW.X + 12f : 0f), _metaW.X + dotsW);
+        var rowW = MathF.Max(MathF.Max(MathF.Max(_titleW.X + (_dist.Length > 0 ? _distW.X + 12f : 0f), _metaW.X + dotsW), bylineW), pillsW);
         var stateFlat = _state.Length > 0 ? font.CalcTextSizeA(_stateSize, float.MaxValue, 0f, _state).X : 0f;
         var w = Math.Clamp(textX + MathF.Max(rowW, stateFlat) + PadX, MinW, maxWidth);
         _stateW = _state.Length > 0 ? font.CalcTextSizeA(_stateSize, float.MaxValue, w - textX - PadX, _state) : Vector2.Zero;
         _detailW = _last.Detail is { Length: > 0 } d ? font.CalcTextSizeA(_metaSize, float.MaxValue, w - 12f, d) : Vector2.Zero;
         _targetW = w;
-        _targetH = PadY + _titleSize + 3f + _metaSize + (_state.Length > 0 ? 5f + _stateW.Y : 0f) + PadY;
+        _targetH = PadY + (_byline.Length > 0 ? _bylineSize + 3f : 0f) + _titleSize + 3f + _metaSize + (_state.Length > 0 ? 5f + _stateW.Y : 0f)
+                   + (pills ? 6f + _metaSize + 8f : 0f) + PadY;
     }
 
     /// <summary>The text, or its head with an ellipsis, within <paramref name="room"/> px. Runs only when the text changed.</summary>
@@ -291,5 +400,9 @@ public sealed class StatusPanel
         && string.Equals(a.Note, b.Note, StringComparison.Ordinal) && string.Equals(a.Why, b.Why, StringComparison.Ordinal) && string.Equals(a.AreaWhy, b.AreaWhy, StringComparison.Ordinal)
         && a.GridReady == b.GridReady && a.FieldReady == b.FieldReady && a.PathReady == b.PathReady && a.Blocked == b.Blocked && a.FromMemory == b.FromMemory
         && a.HasTravelTo == b.HasTravelTo && a.ViaTravelMap == b.ViaTravelMap && a.ViaPortal == b.ViaPortal && string.Equals(a.PortalKey, b.PortalKey, StringComparison.Ordinal) && a.TravelMapOpen == b.TravelMapOpen && a.StopChosen == b.StopChosen && a.DoorAhead == b.DoorAhead && a.UseItem == b.UseItem && a.TextOnly == b.TextOnly && a.ShipReturn == b.ShipReturn && a.BossFight == b.BossFight
-        && (a.PathCells <= 4) == (b.PathCells <= 4) && string.Equals(a.Detail, b.Detail, StringComparison.Ordinal);
+        && (a.PathCells <= 4) == (b.PathCells <= 4) && string.Equals(a.Detail, b.Detail, StringComparison.Ordinal)
+        && string.Equals(a.Byline, b.Byline, StringComparison.Ordinal) && a.BylineHue == b.BylineHue && a.AgentOnCard == b.AgentOnCard
+        && string.Equals(a.MetaOverride, b.MetaOverride, StringComparison.Ordinal) && string.Equals(a.StateOverride, b.StateOverride, StringComparison.Ordinal)
+        && a.DidIt == b.DidIt && a.BackToRoute == b.BackToRoute && string.Equals(a.ParkedText, b.ParkedText, StringComparison.Ordinal) && a.ParkedHue == b.ParkedHue
+        && a.WashAt == b.WashAt && a.WashHue == b.WashHue;
 }
