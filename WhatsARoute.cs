@@ -1075,19 +1075,73 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         }
         if (_useSlot == null) return;
         var r = _useSlot.GetClientRect();
-        var min = new Vector2(r.X, r.Y);
-        var max = new Vector2(r.X + r.Width, r.Y + r.Height);
+        HighlightRect(new Vector2(r.X, r.Y), new Vector2(r.X + r.Width, r.Y + r.Height), core, glow, time, "Right-click", below: false);
+    }
+
+    /// <summary>A UI thing to click: a pulsing frame with a soft halo and a hint above it (or below, near the screen's top).</summary>
+    private static void HighlightRect(Vector2 min, Vector2 max, Vector3 core, Vector3 glow, double time, string hint, bool below)
+    {
         var dl = ImGui.GetForegroundDrawList();
         var pulse = 0.55f + 0.45f * MathF.Sin((float)(time * Math.PI * 2 / 1.2));
         for (var k = 3; k >= 1; k--)   // soft halo, widest first
             dl.AddRect(min - new Vector2(k * 3), max + new Vector2(k * 3), Glow.Col(glow, 0.10f * pulse * (4 - k)), 6f + k * 3, ImDrawFlags.None, 3f);
         dl.AddRect(min, max, Glow.Col(core, 0.65f + 0.35f * pulse), 5f, ImDrawFlags.None, 2.2f);
-        const string hint = "Right-click";
         var size = ImGui.GetFontSize();
         var ts = ImGui.GetFont().CalcTextSizeA(size, float.MaxValue, 0f, hint);
-        var tp = new Vector2((min.X + max.X - ts.X) * 0.5f, min.Y - ts.Y - 8f);
+        var tp = new Vector2(MathF.Max((min.X + max.X - ts.X) * 0.5f, 8f), below ? max.Y + 8f : min.Y - ts.Y - 8f);
         dl.AddRectFilled(tp - new Vector2(6, 3), tp + ts + new Vector2(6, 3), Glow.Col(new Vector3(0.04f, 0.06f, 0.07f), 0.88f), 4f);
         dl.AddText(ImGui.GetFont(), size, tp, Glow.Col(core, 0.95f), hint);
+    }
+
+    /// <summary>A step of this area still to do (optional ones while they are on).</summary>
+    private bool PendingHere(List<RouteStep> steps)
+    {
+        for (var i = 0; i < steps.Count; i++)
+            if (!StepDone(i, steps[i]) && (Settings.Route.IncludeOptional || !steps[i].Optional)) return true;
+        return false;
+    }
+
+    private bool _shipReturn;   // the objective is the party panel's Return to Ship (Act 4 islands, once they are done)
+    private ExileCore2.PoEMemory.Element? _shipButton;
+    private double _nextShipScan;
+
+    /// <summary>
+    /// The party panel's boat portrait (Return to Ship), while it shows: PartyElement[0][0][1] holds the
+    /// NPCPartyPortraitBoat texture, [0][0][0] the "Return to Ship" labels (read live 2026-10-12, Shrike Island).
+    /// Looked up 4x per second at most.
+    /// </summary>
+    private ExileCore2.PoEMemory.Element? ShipButton()
+    {
+        var time = _clock.Elapsed.TotalSeconds;
+        if (time < _nextShipScan && (_shipButton == null || _shipButton is { IsValid: true, IsVisible: true })) return _shipButton;
+        _nextShipScan = time + 0.25;
+        _shipButton = null;
+        try
+        {
+            if (GameController.IngameState.IngameUi.PartyElement is not { IsVisible: true } party) return null;
+            var stack = new Stack<(ExileCore2.PoEMemory.Element e, int depth)>();
+            stack.Push((party, 0));
+            while (stack.Count > 0)
+            {
+                var (e, depth) = stack.Pop();
+                if (e.TextureName?.Contains("NPCPartyPortraitBoat", StringComparison.OrdinalIgnoreCase) == true)
+                    return _shipButton = e.Parent ?? e;
+                if (depth >= 5) continue;
+                var n = (int)Math.Min(e.ChildCount, 30);
+                for (var k = 0; k < n; k++)
+                    if (e.GetChildAtIndex(k) is { IsVisible: true } c) stack.Push((c, depth + 1));
+            }
+        }
+        catch (Exception ex) { _why = $"IngameUi.PartyElement: {ex.Message}"; }
+        return null;
+    }
+
+    /// <summary>The Return to Ship boat, framed and pulsing like the item to use (hint below it: it sits near the top).</summary>
+    private void DrawShipHighlight(Vector3 core, Vector3 glow, double time)
+    {
+        if (_shipButton is not { IsValid: true, IsVisible: true } b) return;
+        var r = b.GetClientRect();
+        HighlightRect(new Vector2(r.X, r.Y), new Vector2(r.X + r.Width, r.Y + r.Height), core, glow, time, "Click", below: true);
     }
 
     /// <summary>An objective with nothing to walk to (an item to use, a dialog to wait through): no path, the card says what to do.</summary>
@@ -1207,6 +1261,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         var q = route ? _questObj : null;
         _useItem = false;
         _textOnly = false;
+        _shipReturn = false;
         _sailTo = null;
         if (route)
             foreach (var u in _book.Route.Use)
@@ -1234,9 +1289,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         if (route && _autoHere.Count + _autoPlan.Count > 0)
         {
             // Steps still to do here: they are the plan in this area, so only acting here beats them.
-            var pending = false;
-            for (var i = 0; i < steps.Count && !pending; i++)
-                pending = !StepDone(i, steps[i]) && (Settings.Route.IncludeOptional || !steps[i].Optional);
+            var pending = PendingHere(steps);
             // 1. A followed quest's thing right here (an NPC in sight, an item, a thing to click, a boss in view).
             // 2. Else, with no route.json objective for the state: the story's own words (travel, enter, wait...).
             AutoUse use = AutoUse.No; string? autoSpec = null;
@@ -1343,6 +1396,16 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         Resolved:
         if (_stepIndex >= 0 && steps[_stepIndex].Label is { Length: > 0 } label) _resolved.Label = label;
         else if (q?.Label is { Length: > 0 } ql && spec == q.Target) _resolved.Label = ql;
+        if (route && !_frame.Detected && !PendingHere(steps) && ShipButton() != null
+            && (_resolved.Goals.Count == 0 || _stepIndex >= 0 || _blockedField != null || spec.StartsWith("travel:", StringComparison.Ordinal)))
+        {
+            // Done on this island: the party panel's boat (Return to Ship) shows up only then (2026-10-12, the user after
+            // the Scourge of the Skies: "highlight it animated for me to click it as the next step"). It beats a done
+            // step's leftover target, a place out of reach and a trip elsewhere, not a quest thing to act on right here.
+            _shipReturn = true;
+            NoPlaceObjective("ui:Return to Ship", "Click Return to Ship (the boat at the top left)");
+            return;
+        }
         if (spec + "|" + _resolved.Label is var objective && objective != _lastObjective) { _lastObjective = objective; Trace("objective"); }
         if (_blockedField != null)
         {
@@ -1527,6 +1590,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         Glow.Theme(Settings.World, _frame.Detected, out var fCore, out var fGlow);
         if (_useItem) DrawUseHighlight(core, glow, time);   // before the big-panel check: the inventory is one
         if (BigPanelOpen()) return;
+        if (_shipReturn) DrawShipHighlight(core, glow, time);
         var avoidUi = Settings.World.AvoidGameUi.Value;
         if (avoidUi)
         {
@@ -1690,6 +1754,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 DoorAhead = _doorAhead is { IsValid: true, IsTargetable: true },
                 UseItem = _useItem,
                 TextOnly = _textOnly,
+                ShipReturn = _shipReturn,
                 BossFight = _bossFight,
                 TravelHub =_areaRaw.StartsWith("G2_", StringComparison.OrdinalIgnoreCase) ? "the Desert Map" : "the waypoint",
                 TravelMapOpen = _map.Open,
