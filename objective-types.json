@@ -1,6 +1,7 @@
 {
   "About": "How a quest state's text becomes an objective. The game writes what to do in every quest state (QuestStates.dat, e.g. 'Speak to Makoru to hire her ship.'). Each sentence is matched against these rules, last sentence first (the order to act comes last); the first rule that matches decides the kind and its subject ('x'). Patterns are .NET regexes, case-insensitive; 'x' is the thing to go to, 'area' (optional) an area named in the sentence. A pronoun subject ('it', 'her') is dropped and the names in the whole text stand in for it ('Speak to her' -> Kaimana); 'Return to X' anywhere in the text is the area when the sentence names none. The kinds and how each is handled: docs/objective-types.md. Add a phrase here when a new quest text is not understood (the trace's quest events show the text and the kind it got).",
   "Rules": [
+    { "Kind": "Sail",    "Pattern": "\\btravel to a new island\\b" },
     { "Kind": "Sail",    "Pattern": "\\bpick an island and set sail\\b" },
     { "Kind": "Sail",    "Pattern": "\\bguide your ship to (?:the )?(?<x>.+?)(?=$|[.,])" },
     { "Kind": "PickUp",  "Pattern": "\\bpick (?:it|them) up\\b" },
