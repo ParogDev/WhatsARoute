@@ -247,7 +247,12 @@ public sealed class UiMask
     }
 
     private void Add(ExileCore2.Shared.RectangleF r) => Add(new Vector4(r.X, r.Y, r.X + r.Width, r.Y + r.Height));
-    private void Add(Vector4 r) => _occ.Add(new Vector4(r.X - Pad, r.Y - Pad, r.Z + Pad, r.W + Pad));
+    /// <summary>
+    /// Padded and grown outward to whole pixels. The renderer turns each scissor into whole pixels, and two free rects
+    /// meeting at y=297.7 left row 297 under neither: a 1 px seam across the screen through every line (2026-10-12,
+    /// the user's screenshot). Whole-pixel occluders give whole-pixel free rects.
+    /// </summary>
+    private void Add(Vector4 r) => _occ.Add(new Vector4(MathF.Floor(r.X - Pad), MathF.Floor(r.Y - Pad), MathF.Ceiling(r.Z + Pad), MathF.Ceiling(r.W + Pad)));
 
     /// <summary>Rects that overlap once padded become their bbox (a tracker entry's title, objective and icon).</summary>
     private void MergeInto(List<Vector4> src, List<Vector4> dst)
