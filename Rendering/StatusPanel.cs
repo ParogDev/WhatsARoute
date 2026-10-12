@@ -41,7 +41,16 @@ public sealed class StatusPanel
         public float PathLen;           // world units along the whole route
         public int PathCells;
         public string? Detail;          // the dev dump, when wanted (drawn under the card, wrapped)
+        // An agent route on the card (AgentRouteView): a byline row above the title in the owner's hue, and its own meta and state.
+        public string? Byline;          // "CLAUDE 2'S ROUTE - F8 #12"
+        public Vector3 BylineHue;
+        public string? MetaOverride;    // "<note>  ·  1 of 3"
+        public string? StateOverride;   // "Click the lever, then press Did it"
     }
+
+    /// <summary>The card's current (eased) size: the compose panel and the agent pills anchor under it.</summary>
+    public float Height => _h;
+    public float Width => _w;
 
     private const float WorldPerMetre = 10.87f;   // one grid cell
     private const double FadeSec = 0.35;
@@ -64,7 +73,8 @@ public sealed class StatusPanel
     private bool _dotsShown;
     private int _dotIndex, _dotCount;
     private ulong _dotDone;
-    private float _titleSize, _metaSize, _stateSize;
+    private float _titleSize, _metaSize, _stateSize, _bylineSize;
+    private string _byline = "";
     private Vector2 _titleW, _distW, _metaW, _stateW, _detailW;
     private float _targetW, _targetH, _w, _h;
     private double _titleAt, _stateAt, _shownAt, _lastTime;
@@ -114,6 +124,13 @@ public sealed class StatusPanel
         // Title row: the pin, the objective, the distance on the right.
         var x = min.X + PadX;
         var y = min.Y + PadY;
+        if (_byline.Length > 0)
+        {
+            // The agent route's byline: who leads the card now (a dot and small caps in the owner's hue).
+            dl.AddCircleFilled(new Vector2(x + PinR + 1f, y + _bylineSize * 0.5f), 3f, Glow.Col(_last.BylineHue, appear), 12);
+            dl.AddText(font, _bylineSize, new Vector2(x + PinR * 2f + 9f, y), Glow.Col(_last.BylineHue, 0.95f * appear), _byline);
+            y += _bylineSize + 3f;
+        }
         var cy = y + _titleSize * 0.5f;
         dl.AddCircle(new Vector2(x + PinR + 1f, cy), PinR + 1.6f, Glow.Col(glow, 0.35f * appear), 16, 2.2f);
         dl.AddCircle(new Vector2(x + PinR + 1f, cy), PinR, Glow.Col(core, 0.9f * appear), 16, 1.3f);
@@ -171,8 +188,10 @@ public sealed class StatusPanel
             : i.QuestTarget ? area + "  ·  quest"
             : i.StepIndex >= 0 && i.StepCount > 12 ? area + "  ·  step " + (i.StepIndex + 1) + " of " + i.StepCount
             : area;
-        var (state, tone) = StateFor(i);
+        if (i.MetaOverride is { Length: > 0 } mo) _meta = mo;
+        var (state, tone) = i.StateOverride is { Length: > 0 } so ? (so, Tone.Info) : StateFor(i);
         _state = state; _tone = tone;
+        _byline = i.Byline ?? "";
         _dist = !i.PathReady ? "" : i.PathCells <= 4 ? "here" : _metres >= 1000 ? (_metres / 1000f).ToString("0.0") + " km" : _metres + " m";
     }
 
@@ -250,8 +269,11 @@ public sealed class StatusPanel
         _titleSize = MathF.Round(_fontSize * 1.2f);
         _metaSize = MathF.Round(_fontSize * 0.88f);
         _stateSize = MathF.Round(_fontSize * 0.95f);
+        _bylineSize = MathF.Round(_fontSize * 0.75f);
         var textX = PadX + PinR * 2f + 9f;
         var inner = MathF.Max(80f, maxWidth - textX - PadX);
+        _byline = Fit(font, _bylineSize, _byline, inner);
+        var bylineW = _byline.Length > 0 ? font.CalcTextSizeA(_bylineSize, float.MaxValue, 0f, _byline).X : 0f;
 
         _distW = _dist.Length > 0 ? font.CalcTextSizeA(_titleSize, float.MaxValue, 0f, _dist) : Vector2.Zero;
         var titleRoom = inner - (_dist.Length > 0 ? _distW.X + 12f : 0f);
@@ -261,13 +283,13 @@ public sealed class StatusPanel
         _meta = Fit(font, _metaSize, _meta, inner - dotsW);
         _metaW = font.CalcTextSizeA(_metaSize, float.MaxValue, 0f, _meta);
 
-        var rowW = MathF.Max(_titleW.X + (_dist.Length > 0 ? _distW.X + 12f : 0f), _metaW.X + dotsW);
+        var rowW = MathF.Max(MathF.Max(_titleW.X + (_dist.Length > 0 ? _distW.X + 12f : 0f), _metaW.X + dotsW), bylineW);
         var stateFlat = _state.Length > 0 ? font.CalcTextSizeA(_stateSize, float.MaxValue, 0f, _state).X : 0f;
         var w = Math.Clamp(textX + MathF.Max(rowW, stateFlat) + PadX, MinW, maxWidth);
         _stateW = _state.Length > 0 ? font.CalcTextSizeA(_stateSize, float.MaxValue, w - textX - PadX, _state) : Vector2.Zero;
         _detailW = _last.Detail is { Length: > 0 } d ? font.CalcTextSizeA(_metaSize, float.MaxValue, w - 12f, d) : Vector2.Zero;
         _targetW = w;
-        _targetH = PadY + _titleSize + 3f + _metaSize + (_state.Length > 0 ? 5f + _stateW.Y : 0f) + PadY;
+        _targetH = PadY + (_byline.Length > 0 ? _bylineSize + 3f : 0f) + _titleSize + 3f + _metaSize + (_state.Length > 0 ? 5f + _stateW.Y : 0f) + PadY;
     }
 
     /// <summary>The text, or its head with an ellipsis, within <paramref name="room"/> px. Runs only when the text changed.</summary>
@@ -291,5 +313,7 @@ public sealed class StatusPanel
         && string.Equals(a.Note, b.Note, StringComparison.Ordinal) && string.Equals(a.Why, b.Why, StringComparison.Ordinal) && string.Equals(a.AreaWhy, b.AreaWhy, StringComparison.Ordinal)
         && a.GridReady == b.GridReady && a.FieldReady == b.FieldReady && a.PathReady == b.PathReady && a.Blocked == b.Blocked && a.FromMemory == b.FromMemory
         && a.HasTravelTo == b.HasTravelTo && a.ViaTravelMap == b.ViaTravelMap && a.ViaPortal == b.ViaPortal && string.Equals(a.PortalKey, b.PortalKey, StringComparison.Ordinal) && a.TravelMapOpen == b.TravelMapOpen && a.StopChosen == b.StopChosen && a.DoorAhead == b.DoorAhead && a.UseItem == b.UseItem && a.TextOnly == b.TextOnly && a.ShipReturn == b.ShipReturn && a.BossFight == b.BossFight
-        && (a.PathCells <= 4) == (b.PathCells <= 4) && string.Equals(a.Detail, b.Detail, StringComparison.Ordinal);
+        && (a.PathCells <= 4) == (b.PathCells <= 4) && string.Equals(a.Detail, b.Detail, StringComparison.Ordinal)
+        && string.Equals(a.Byline, b.Byline, StringComparison.Ordinal) && a.BylineHue == b.BylineHue
+        && string.Equals(a.MetaOverride, b.MetaOverride, StringComparison.Ordinal) && string.Equals(a.StateOverride, b.StateOverride, StringComparison.Ordinal);
 }

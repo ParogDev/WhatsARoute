@@ -24,7 +24,7 @@ namespace WhatsARoute;
 /// (cost to the goal from every cell) is built once on a worker. Per step the player takes: the path is read off
 /// the field and shaped (microseconds). Per frame: only projection and drawing.
 /// </summary>
-public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
+public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
 {
     private const int NearCells = 400;          // shaped for the world view (~4300 world units)
     private const int MaxCells = 60_000;
@@ -123,7 +123,6 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private string? _toast;                      // the line above the card: the agent's reply, or "sent"
     private double _toastUntil;
     private bool _feedbackOpen;
-    private string _feedbackNote = "";
     private string _lastObjective = "";
 
     /// <summary>The live folder: the setting, else %LOCALAPPDATA%\Hexile\WhatsARoute (outside git, writable by the agent).</summary>
@@ -159,123 +158,9 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     }
 
     /// <summary>
-    /// An F8 verdict: written to feedback.jsonl and published as a "feedback" event. The MCP's dispatcher claims it and
-    /// starts a fresh Claude Code session for it; its replies (feedback.reply) show above the card (HandleReplies).
+    /// The plugin's own line just above the card (route reloaded, an agent route's hand-back, the bridge back); fades out.
+    /// F8 progress is the bridge's to draw (WhatsARoute.Feedback.cs HandleReplies), except with an older bridge.
     /// </summary>
-    private void SendFeedback(string verdict)
-    {
-        RouteStateDto? state = null;
-        try { state = BuildState(); state.MapPath.Clear(); } catch { /* the verdict still goes out */ }
-        var dto = new FeedbackDto
-        {
-            Kind = "feedback", Event = verdict, Note = _feedbackNote.Trim() is { Length: > 0 } n ? n : null, Area = _areaRaw, AreaName = _areaName,
-            Target = _targetSpec, Label = _resolved.Label, StepIndex = _stepIndex,
-            PlayerGrid = _lastCell.x == int.MinValue ? null : [_lastCell.x, _lastCell.y], State = state,
-        };
-        var fileSeq = _feedback.Write(dto);
-        var works = verdict == "works";
-        var sent = _bridge.Publish("feedback", dto, keep: !works);   // kept and sent once the bridge is back
-        string text;
-        if (works) text = sent is { Ok: true } || fileSeq >= 0 ? "Thanks, noted as working" : $"Could not record it: {_feedback.Why}";
-        else if (sent is { Ok: true })
-        {
-            text = sent.Subscribers.Count > 0
-                ? $"Sent to Claude (#{sent.Seq}): a fresh Claude session picks it up in a moment"
-                : NoDispatcher(sent.Seq);
-            AwaitClaim(sent);
-        }
-        else text = $"Kept for Claude: {_bridge.Why ?? "the AI Bridge did not take it"}. It goes out as soon as the bridge is back"
-                    + (fileSeq < 0 ? $" (feedback.jsonl failed too: {_feedback.Why})" : "");
-        Toast(text, works ? 4 : 12);   // a press nobody listens to stays on (HandleReplies: _replyPending)
-        _feedbackNote = "";
-        _feedbackOpen = false;
-    }
-
-    private readonly SortedDictionary<long, (string text, double since)> _replyPending = new();   // press -> its "on it" line, until its answer (45 min at most)
-    private readonly HashSet<long> _replyDone = new();
-    private readonly Dictionary<long, double> _unclaimed = new();   // press -> when it went out, until the dispatcher's first reply
-    private const double ClaimWaitSec = 20;
-
-    // The shared MCP server hosts the dispatcher and runs only inside the Claude app: no app, no dispatcher (2026-10-12,
-    // press #1065 sat unanswered). Fail at the broken link: the card keeps saying so until a dispatcher answers the press.
-    private static string NoDispatcher(long seq) =>
-        $"#{seq} waits: no Claude dispatcher is listening (the shared MCP server is down, e.g. the Claude app is closed). " +
-        @"Open the Claude app (any Code session starts it) or run tools\mcp-http-start.ps1 in a terminal inside it; the press is handled then";
-
-    private static string NotClaimed(long seq) =>
-        $"#{seq} not picked up after {ClaimWaitSec:0} s: no Claude dispatcher answered. " +
-        @"Claude app closed? Open it, or run tools\mcp-http-start.ps1 in a terminal inside it. Otherwise MCP feedback_dispatcher says why";
-
-    /// <summary>A press that went out: watched until the dispatcher's first reply; with nobody listening, said at once.</summary>
-    private void AwaitClaim(PublishResult sent)
-    {
-        var now = _clock.Elapsed.TotalSeconds;
-        _unclaimed[sent.Seq] = now;
-        if (sent.Subscribers.Count == 0) _replyPending[sent.Seq] = (NoDispatcher(sent.Seq), now);
-    }
-
-    /// <summary>
-    /// Tick: the dispatcher's and the handler's replies, per press. An answer shows ~25 s; a press still being worked on
-    /// keeps its "Claude is on it" line above the card until its own answer; a late "on it" for an answered press is ignored.
-    /// </summary>
-    private void HandleReplies(double now)
-    {
-        _bridge.Refresh(GameController.PluginBridge, now);
-        foreach (var seq in _bridge.Flushed) { Toast($"Sent to Claude (#{seq}) now that the AI Bridge is back", 8); _unclaimed[seq] = now; }
-        foreach (var r in _bridge.TakeReplies())
-        {
-            _unclaimed.Remove(r.Ref);
-            var text = r.Text is { Length: > 0 } t ? t : r.Status;
-            if (r.Final)
-            {
-                _replyDone.Add(r.Ref);
-                _replyPending.Remove(r.Ref);
-                Toast(text, r.Status == "failed" ? 30 : 25);
-            }
-            else if (!_replyDone.Contains(r.Ref))
-            {
-                _replyPending[r.Ref] = (text, now);
-                Toast(text, 900);   // until the answer replaces it (15 min cap)
-            }
-        }
-        foreach (var seq in _unclaimed.Where(kv => now - kv.Value >= ClaimWaitSec).Select(kv => kv.Key).ToList())
-        {
-            _unclaimed.Remove(seq);
-            if (!_replyPending.ContainsKey(seq) && !_replyDone.Contains(seq)) { _replyPending[seq] = (NotClaimed(seq), now); Toast(NotClaimed(seq), 900); }
-        }
-        foreach (var old in _replyPending.Where(kv => now - kv.Value.since > 2700).Select(kv => kv.Key).ToList()) _replyPending.Remove(old);
-        if (_replyPending.Count > 0 && now >= _toastUntil) Toast(_replyPending[_replyPending.Keys.Max()].text, 900);
-    }
-
-    /// <summary>The feedback panel under the card: one click per verdict, an optional note (typed while the HUD has focus).</summary>
-    private void DrawFeedback()
-    {
-        if (!_feedbackOpen) return;
-        ImGui.SetNextWindowPos(new Vector2(Settings.Debug.StatusX.Value, Settings.Debug.StatusY.Value + 110), ImGuiCond.Appearing);
-        ImGui.SetNextWindowBgAlpha(0.92f);
-        if (!ImGui.Begin("Route feedback##WhatsARoute", ref _feedbackOpen, ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoCollapse))
-        {
-            ImGui.End();
-            return;
-        }
-        ImGui.TextDisabled($"{_areaName}  ·  {(_resolved.Label.Length > 0 ? _resolved.Label : _targetSpec)}");
-        if (ImGui.Button("Works")) SendFeedback("works");
-        ImGui.SameLine();
-        if (ImGui.Button("Wrong place")) SendFeedback("wrong-place");
-        ImGui.SameLine();
-        if (ImGui.Button("Not advancing")) SendFeedback("not-advancing");
-        ImGui.SameLine();
-        if (ImGui.Button("Missing step")) SendFeedback("missing-step");
-        ImGui.SameLine();
-        if (ImGui.Button("Heads up...")) { _feedbackOpen = false; _headsUpOpen = true; }
-        ImGui.SetNextItemWidth(360);
-        if (ImGui.InputTextWithHint("##note", "what should it do? (Enter sends)", ref _feedbackNote, 300, ImGuiInputTextFlags.EnterReturnsTrue)
-            && _feedbackNote.Trim().Length > 0)
-            SendFeedback("note");
-        ImGui.End();
-    }
-
-    /// <summary>The agent's reply or the "sent" line, just above the card; fades out.</summary>
     private void DrawToast(double now)
     {
         if (_toast == null || now >= _toastUntil) return;
@@ -360,6 +245,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     {
         var t = _clock.Elapsed.TotalSeconds;
         HandleReplies(t);   // before the in-game check: a reply may arrive on a loading screen
+        AgentTick(t);
+        F8Tick(t);
         if (!GameController.InGame || GameController.Player == null) { _frame.Ready = false; return; }
         if (t >= _nextLiveCheck) { _nextLiveCheck = t + 0.5; if (_book.Changed()) ReloadRoute(); }   // the agent's live edits, in half a second
         if (t >= _nextQuests) { _nextQuests = t + 1; ReadQuests(); }
@@ -462,6 +349,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             var steps = _book.StepsFor(_areaRaw);
             if (_stepIndex < steps.Count && !steps[_stepIndex].SkipIfNone) _reachedSteps.Add(StepKey(steps[_stepIndex]));
         }
+        if (_cells.Count <= 4 && _blockedField == null) AgentReached();
     }
 
     // A closed door on the way (2026-10-11 Venom Crypts, the user: "it should make me click the door here"): doors are
@@ -703,9 +591,10 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             Target = _targetSpec, Label = _resolved.Label, StepIndex = _stepIndex,
             PlayerGrid = _lastCell.x == int.MinValue ? null : [_lastCell.x, _lastCell.y], State = state, Capture = dto,
         };
+        // An F8 press's "Watch what I do next": the capture goes out as feedback.capture, Ref = the press (its handler waits for it).
+        if (c.Ref is { } pressRef) { fb.Event = "capture"; fb.Ref = pressRef; }
         _feedback.Write(fb);
-        var sent = _bridge.Publish("feedback", fb, keep: true);
-        if (sent is { Ok: true }) AwaitClaim(sent);
+        var sent = _bridge.Publish(c.Ref != null ? AiBridgeLink.CaptureKind : "feedback", fb, keep: true);
         Toast(sent is { Ok: true }
             ? $"Heads-up sent (#{sent.Seq}): {changes} change{(changes == 1 ? "" : "s")} for Claude to map into the route"
             : $"Heads-up kept for Claude ({changes} changes): {_bridge.Why ?? "the AI Bridge did not take it"}", 10);
@@ -1305,6 +1194,12 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         _textOnly = false;
         _shipReturn = false;
         _sailTo = null;
+        // An agent's route supersedes the normal one while it runs (WhatsARoute.AgentRoute.cs); the normal one is only paused.
+        switch (AgentObjective(cell, out spec))
+        {
+            case 1: goto Resolved;
+            case 2: return;
+        }
         if (route)
             foreach (var u in _book.Route.Use)
             {
@@ -1438,7 +1333,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         Resolved:
         if (_stepIndex >= 0 && steps[_stepIndex].Label is { Length: > 0 } label) _resolved.Label = label;
         else if (q?.Label is { Length: > 0 } ql && spec == q.Target) _resolved.Label = ql;
-        if (route && !_frame.Detected && !PendingHere(steps) && ShipButton() != null
+        if (route && !_agent.OnCard &&!_frame.Detected && !PendingHere(steps) && ShipButton() != null
             && (_resolved.Goals.Count == 0 || _stepIndex >= 0 || _blockedField != null || spec.StartsWith("travel:", StringComparison.Ordinal)))
         {
             // Done on this island: the party panel's boat (Return to Ship) shows up only then (2026-10-12, the user after
@@ -1617,8 +1512,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         // that window. Not IsForeGroundCache: the core's ForceForeground (on, so the bridge answers while the user is
         // elsewhere) makes it always true. The HUD's own window counts as the game, so its menu keeps showing the route.
         if (!GameController.IsForeGroundCache || !GameInFront.Check(GameController.Window.Process.Id)) return;
-        if (Settings.Route.NextStep.PressedOnce()) { _stepShift++; _nextResolve = 0; }
-        if (Settings.Route.PreviousStep.PressedOnce()) { _stepShift--; _nextResolve = 0; }
+        if (Settings.Route.NextStep.PressedOnce()) { if (!AgentStepKey(+1)) _stepShift++; _nextResolve = 0; }   // an agent route that leads takes the keys
+        if (Settings.Route.PreviousStep.PressedOnce()) { if (!AgentStepKey(-1)) _stepShift--; _nextResolve = 0; }
         if (Settings.Route.Feedback.PressedOnce()) _feedbackOpen = !_feedbackOpen;
         if (Settings.Route.HeadsUp.PressedOnce())
         {
@@ -1638,6 +1533,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         // sibling for the ribbon, the large-map line and its own marker. The travel map above and the door marker
         // below keep the plain theme: they are the planned road, not the found thing.
         Glow.Theme(Settings.World, _frame.Detected, out var fCore, out var fGlow);
+        AgentColours(ref fCore, ref fGlow, time);   // an agent route on the card: the owner's hue
         if (_useItem) DrawUseHighlight(core, glow, time);   // before the big-panel check: the inventory is one
         if (BigPanelOpen()) return;
         if (_shipReturn) DrawShipHighlight(core, glow, time);
@@ -1815,10 +1711,14 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 PathCells = _cells.Count,
                 Detail = _statusDetail,
             };
+            AgentStatus(ref _statusIn, now);   // an agent route on the card: its byline, step and note
             _status.Update(_statusIn, Settings.Debug.StatusWidth.Value, now);
         }
-        _status.Draw(ImGui.GetBackgroundDrawList(), new Vector2(Settings.Debug.StatusX.Value, Settings.Debug.StatusY.Value),
-            Glow.Rgb(Settings.World.PathCore.Value), Glow.Rgb(Settings.World.PathGlow.Value), now);
+        var cardCore = Glow.Rgb(Settings.World.PathCore.Value);
+        var cardGlow = Glow.Rgb(Settings.World.PathGlow.Value);
+        _agentView.Blend(ref cardCore, ref cardGlow);
+        _status.Draw(ImGui.GetBackgroundDrawList(), new Vector2(Settings.Debug.StatusX.Value, Settings.Debug.StatusY.Value), cardCore, cardGlow, now);
+        DrawAgentControls(now);
     }
 
     /// <summary>A step already reached or flagged done, from what Tick recorded: no entity scan (StepDone's SeenEnough) on the render path.</summary>
@@ -1907,6 +1807,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         if (_book.LiveError != null) dto.Notes.Add(_book.LiveError);
         if (_book.LiveAreas + _book.LiveQuests > 0) dto.Notes.Add($"live route {_book.LivePath}: {_book.LiveAreas} areas, {_book.LiveQuests} quest objectives over route.json");
         if (_feedback.Why != null) dto.Notes.Add(_feedback.Why);
+        dto.AgentRoute = AgentState();
         return dto;
     }
 }

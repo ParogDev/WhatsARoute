@@ -23,11 +23,38 @@ public sealed class FeedbackReplyDto
 {
     /// <summary>The bridge sequence of the press it answers.</summary>
     public long Ref { get; set; }
-    /// <summary>queued | claimed | working | done | failed</summary>
+    /// <summary>Legacy: queued | claimed | working | done | failed (an old dispatcher sends only this).</summary>
     public string Status { get; set; } = "";
     public string? Text { get; set; }
+    /// <summary>F8Stage (research/f8-agent-ux.md 3.1): Pressed .. Done | Failed | Dropped.</summary>
+    public string? Stage { get; set; }
+    public string? WaitingOn { get; set; }
+    public string? Detail { get; set; }
 
-    public bool Final => Status is "done" or "failed";
+    public bool Final => Status is "done" or "failed" || Stage is "Done" or "Failed" or "Dropped";
+    public bool Failed => Status == "failed" || Stage == "Failed";
+}
+
+/// <summary>
+/// One item of the bridge's work list (AIBridge.WorkList, AgentWorkDto in research/f8-agent-ux.md 8.2): read for the compose
+/// panel's verify row and to notice an agent route's owner is gone. Only the fields this plugin reads.
+/// </summary>
+public sealed class WorkItemDto
+{
+    /// <summary>"f8:&lt;seq&gt;" or a session id.</summary>
+    public string Key { get; set; } = "";
+    /// <summary>F8 | Task</summary>
+    public string Kind { get; set; } = "";
+    public long? Seq { get; set; }
+    public string? Owner { get; set; }
+    public string? OwnerName { get; set; }
+    public int Hue { get; set; }
+    public string? Title { get; set; }
+    public string Stage { get; set; } = "";
+    public string? WaitingOn { get; set; }
+    public string? Text { get; set; }
+    public DateTime? StageAt { get; set; }
+    public bool Final { get; set; }
 }
 
 /// <summary>
@@ -42,6 +69,53 @@ public sealed class FeedbackReplyDto
 public sealed class AiBridgeLink
 {
     public const string PublishName = "AIBridge.Publish", SubscribeName = "AIBridge.Subscribe", ReplyKind = "feedback.reply";
+    /// <summary>An agent route command in (AgentRouteDto), its progress out (AgentRouteProgressDto).</summary>
+    public const string AgentKind = "route.agent", AgentProgressKind = "route.agent.progress";
+    private const string Kinds = ReplyKind + "," + AgentKind;
+    /// <summary>A watch-next capture for an F8 press (FeedbackDto, Event "capture", Ref = the press).</summary>
+    public const string CaptureKind = "feedback.capture";
+    /// <summary>The bridge's work items (Func&lt;string&gt;, JSON array) and step highlights in an agent's layer (Func&lt;owner, json, string&gt;).</summary>
+    public const string WorkListName = "AIBridge.WorkList", HighlightForName = "AIBridge.HighlightFor";
+    private Func<string>? _workList;
+    private Func<string, string, string>? _highlightFor;
+
+    /// <summary>
+    /// The bridge draws F8 progress itself (its work strip and toasts, research/f8-agent-ux.md 3): it has the work list.
+    /// An older bridge does not, and the plugin's own reply line above the card stays.
+    /// </summary>
+    public bool DrawsProgress => _workList != null;
+
+    public bool HasHighlightFor => _highlightFor != null;
+
+    /// <summary>The bridge's work items now; null with <paramref name="why"/> when the bridge has no work list or it failed.</summary>
+    public List<WorkItemDto>? WorkList(out string? why)
+    {
+        why = null;
+        if (_workList is not { } f) { why = $"bridge has no {WorkListName}"; return null; }
+        try
+        {
+            var tok = JToken.Parse(f());
+            var arr = tok as JArray ?? (tok["items"] ?? tok["work"]) as JArray;
+            if (arr == null) { why = $"{WorkListName}: {(tok["message"] ?? tok["error"] ?? "no item array")}"; return null; }
+            return arr.ToObject<List<WorkItemDto>>() ?? new();
+        }
+        catch (Exception ex) { why = $"{WorkListName}: {ex.Message}"; return null; }
+    }
+
+    /// <summary>
+    /// A guide.highlight in <paramref name="ownerSession"/>'s layer (the bridge's lifetime and panel rules apply; {"clear":true}
+    /// clears it). Null when it went out, else why not ("bridge has no AIBridge.HighlightFor", or the bridge's error).
+    /// </summary>
+    public string? HighlightFor(string ownerSession, string json)
+    {
+        if (_highlightFor is not { } f) return $"bridge has no {HighlightForName}";
+        try
+        {
+            var r = JToken.Parse(f(ownerSession, json));
+            return r is JObject o && o["ok"]?.Type == JTokenType.Boolean && !o["ok"]!.Value<bool>() ? $"{HighlightForName}: {o["message"] ?? o["error"]}" : null;
+        }
+        catch (Exception ex) { return $"{HighlightForName}: {ex.Message}"; }
+    }
     private const int UnsentMax = 20;
 
     private readonly string _subscriber = "WhatsARoute#" + Guid.NewGuid().ToString("N")[..8];
@@ -49,7 +123,7 @@ public sealed class AiBridgeLink
     private Func<string, string, Action<string>, string>? _subscribe;
     private Delegate? _deadPublish;      // a bridge load that answered bridge_reloaded: PluginBridge may still hand it out
     private double _nextLookup, _nextSubscribe;
-    private readonly ConcurrentQueue<string> _inbox = new();
+    private readonly ConcurrentQueue<FeedbackReplyDto> _inbox = new();
     private readonly Queue<(string kind, string json)> _unsent = new();
     private static readonly JsonSerializerSettings Json = new() { NullValueHandling = NullValueHandling.Ignore };
 
@@ -76,22 +150,25 @@ public sealed class AiBridgeLink
             publish = bridge.GetMethod<Func<string, string, string>>(PublishName);
             subscribe = bridge.GetMethod<Func<string, string, Action<string>, string>>(SubscribeName);
         }
-        catch (Exception ex) { _publish = null; _subscribe = null; Why = $"PluginBridge lookup of {PublishName}: {ex.Message}"; return; }
+        catch (Exception ex) { _publish = null; _subscribe = null; _workList = null; _highlightFor = null; Why = $"PluginBridge lookup of {PublishName}: {ex.Message}"; return; }
         if (publish == null || subscribe == null)
         {
-            _publish = null; _subscribe = null;
+            _publish = null; _subscribe = null; _workList = null; _highlightFor = null;
             Why = $"PluginBridge has no {(publish == null ? PublishName : SubscribeName)}: Whats An AI Bridge is not loaded, or a build before pub/sub";
             return;
         }
-        if (ReferenceEquals(publish, _deadPublish)) { _publish = null; _subscribe = null; Why = "Whats An AI Bridge was unloaded (its methods answer bridge_reloaded)"; return; }
+        if (ReferenceEquals(publish, _deadPublish)) { _publish = null; _subscribe = null; _workList = null; _highlightFor = null; Why = "Whats An AI Bridge was unloaded (its methods answer bridge_reloaded)"; return; }
         var newLoad = !ReferenceEquals(subscribe, _subscribe);
         _publish = publish; _subscribe = subscribe; Why = null;
+        // Newer bridge methods (the F8 work list, step highlights): absent on an older bridge, which is "not now", not broken.
+        try { _workList = bridge.GetMethod<Func<string>>(WorkListName); } catch { _workList = null; }
+        try { _highlightFor = bridge.GetMethod<Func<string, string, string>>(HighlightForName); } catch { _highlightFor = null; }
         if (newLoad || now >= _nextSubscribe)
         {
             _nextSubscribe = now + 30;
             try
             {
-                var r = JObject.Parse(subscribe(_subscriber, ReplyKind, json => _inbox.Enqueue(json)));
+                var r = JObject.Parse(subscribe(_subscriber, Kinds, OnEvent));
                 if (r["ok"]?.Value<bool>() != true) Why = $"{SubscribeName}: {r["message"] ?? r["error"]}";
             }
             catch (Exception ex) { Why = $"{SubscribeName}: {ex.Message}"; }
@@ -140,17 +217,38 @@ public sealed class AiBridgeLink
     /// <summary>From OnClose: the bridge drops this load's handler (it would pin the unloaded plugin and keep calling it).</summary>
     public void Close()
     {
-        try { _subscribe?.Invoke(_subscriber, ReplyKind, null!); } catch { }
+        try { _subscribe?.Invoke(_subscriber, Kinds, null!); } catch { }
     }
+
+    /// <summary>The bridge's thread: each kind to its own queue, read in Tick.</summary>
+    private void OnEvent(string json)
+    {
+        try
+        {
+            var e = JObject.Parse(json);
+            if (e["data"] is not JObject data) return;
+            if (e["kind"]?.ToString() == AgentKind)
+            {
+                if (data.ToObject<AgentRouteDto>() is not { } a) return;
+                if (string.IsNullOrWhiteSpace(a.Owner)) a.Owner = e["source"]?.ToString();   // the publishing session's label
+                _agentInbox.Enqueue(a);
+            }
+            else if (data.ToObject<FeedbackReplyDto>() is { } r) _inbox.Enqueue(r);
+        }
+        catch { /* a malformed event is skipped; the bridge logs every event anyway */ }
+    }
+
+    private readonly ConcurrentQueue<AgentRouteDto> _agentInbox = new();
 
     /// <summary>Replies received since the last call (Tick, main thread).</summary>
     public IEnumerable<FeedbackReplyDto> TakeReplies()
     {
-        while (_inbox.TryDequeue(out var json))
-        {
-            FeedbackReplyDto? reply = null;
-            try { reply = (JObject.Parse(json)["data"] as JObject)?.ToObject<FeedbackReplyDto>(); } catch { }
-            if (reply != null) yield return reply;
-        }
+        while (_inbox.TryDequeue(out var r)) yield return r;
+    }
+
+    /// <summary>Agent route commands received since the last call (Tick, main thread).</summary>
+    public IEnumerable<AgentRouteDto> TakeAgentRoutes()
+    {
+        while (_agentInbox.TryDequeue(out var a)) yield return a;
     }
 }
