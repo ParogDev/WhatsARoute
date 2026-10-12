@@ -154,6 +154,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         };
         _feedback.Write(dto);
         _bridge.Publish("route", dto);
+        if (_capture is { } c && evt != "heads-up-start" && c.Events.Count < 200)
+            c.Events.Add($"{evt}{(note != null ? ": " + note : "")}{(quests != null ? " " + string.Join(" | ", quests) : "")}{(evt == "objective" ? $": {_resolved.Label} ({_targetSpec})" : "")}");
     }
 
     /// <summary>
@@ -235,6 +237,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         if (ImGui.Button("Not advancing")) SendFeedback("not-advancing");
         ImGui.SameLine();
         if (ImGui.Button("Missing step")) SendFeedback("missing-step");
+        ImGui.SameLine();
+        if (ImGui.Button("Heads up...")) { _feedbackOpen = false; _headsUpOpen = true; }
         ImGui.SetNextItemWidth(360);
         if (ImGui.InputTextWithHint("##note", "what should it do? (Enter sends)", ref _feedbackNote, 300, ImGuiInputTextFlags.EnterReturnsTrue)
             && _feedbackNote.Trim().Length > 0)
@@ -330,6 +334,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         if (!GameController.InGame || GameController.Player == null) { _frame.Ready = false; return; }
         if (t >= _nextLiveCheck) { _nextLiveCheck = t + 0.5; if (_book.Changed()) ReloadRoute(); }   // the agent's live edits, in half a second
         if (t >= _nextQuests) { _nextQuests = t + 1; ReadQuests(); }
+        WatchWorld(t);
+        if (_capture is { } cap && cap.ShouldEnd(t) is { } endedBy) EndHeadsUp(endedBy);
         ReadTravelMap(t);   // every tick: the open check is one cached read; the node scan inside is rate-limited
         var grid = _grid;
         if (grid == null) { _why = _areaWhy ?? "building the area grid"; _frame.Ready = false; return; }
@@ -517,9 +523,192 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         }
     }
 
+    // ── The world trace: what the player did, recorded as it happens, so a route can be mapped from any play session ──
+    // (2026-10-12, the user: "any time there's a required NPC interaction ... any time there's a quest item I must get
+    // first, I must tell you first"). Quest flags, NPC dialogs and quest items in the inventory go out as trace events
+    // next to the quest states, and into a running heads-up capture.
+
+    private HashSet<QuestFlag>? _flagsSet;          // quest flags set at the last read (null until the first)
+    private double _nextAllFlags, _nextWorld;
+    private string? _dialogNpc;
+    private HashSet<string>? _questItemsHeld;    // "name|path" of quest items carried at the last look
+
+    private void WatchWorld(double now)
+    {
+        if (now >= _nextAllFlags)
+        {
+            _nextAllFlags = now + 3;
+            if (ReadFlagsSet() is { } set)
+            {
+                if (_flagsSet != null)
+                {
+                    var added = set.Where(f => !_flagsSet.Contains(f)).Select(f => f.ToString()).ToList();
+                    var cleared = _flagsSet.Where(f => !set.Contains(f)).Select(f => f.ToString()).ToList();
+                    if (added.Count > 0) { Trace("flag", string.Join(", ", added)); _capture?.Changed(now); }
+                    if (cleared.Count > 0) Trace("flag-cleared", string.Join(", ", cleared));
+                }
+                _flagsSet = set;
+            }
+        }
+        if (now < _nextWorld) return;
+        _nextWorld = now + 0.5;
+        string? npc = null;
+        try { if (GameController.IngameState.IngameUi.NpcDialog is { IsVisible: true } d) npc = d.NpcName; }
+        catch (Exception ex) { _why = $"IngameUi.NpcDialog: {ex.Message}"; }
+        if (npc is { Length: > 0 } && npc != _dialogNpc)
+        {
+            Trace("npc-dialog", npc);
+            _capture?.Dialogs.Add(npc);
+            _capture?.Changed(now);
+        }
+        _dialogNpc = npc is { Length: > 0 } ? npc : null;
+        RefreshCarried();
+        var held = _carriedQuest.Select(q => q.name + "|" + q.path).ToHashSet();
+        if (_questItemsHeld != null)
+        {
+            foreach (var h in held.Where(h => !_questItemsHeld.Contains(h))) { Trace("item-gained", ShowItem(h)); _capture?.Changed(now); }
+            foreach (var h in _questItemsHeld.Where(h => !held.Contains(h))) { Trace("item-lost", ShowItem(h)); _capture?.Changed(now); }
+        }
+        _questItemsHeld = held;
+    }
+
+    private static string ShowItem(string nameBarPath) => nameBarPath.Replace("|", " (") + ")";
+
+    /// <summary>Every quest flag set now, by name (ServerData.QuestFlags: ~4700 flags, ~1.4 ms cold, cached by the HUD after).</summary>
+    private HashSet<QuestFlag>? ReadFlagsSet()
+    {
+        try
+        {
+            var all = GameController.IngameState.Data.ServerData?.QuestFlags;
+            if (all == null) return null;
+            var set = new HashSet<QuestFlag>();   // enum values: names only for the few that change
+            foreach (var (flag, on) in all)
+                if (on) set.Add(flag);
+            return set;
+        }
+        catch (Exception ex) { _why = $"ServerData.QuestFlags: {ex.Message}"; return null; }
+    }
+
+    // ── Heads-up (F7): "I'm about to do something for a quest" → what changed, to Claude ──
+
+    private bool _headsUpOpen;
+    private string _headsUpNote = "";
+    private HeadsUpCapture? _capture;
+    private static readonly (string intent, string label)[] Intents =
+    [
+        ("Talk", "Talk to an NPC"), ("PickUp", "Pick up / take an item"), ("Use", "Use an item"), ("Click", "Click something"),
+        ("Enter", "Enter / travel"), ("Defeat", "Kill a boss"), ("Other", "Something else"),
+    ];
+
+    /// <summary>The things near the player now (places, NPCs, ground items; not monsters): what a click changes is among them.</summary>
+    private Dictionary<string, NearThing> NearThings((int x, int y) cell)
+    {
+        var near = new Dictionary<string, NearThing>();
+        foreach (var e in GameController.EntityListWrapper.OnlyValidEntities)
+        {
+            if (e.Type is EntityType.Monster or EntityType.Effect or EntityType.Player || e.Path is not { Length: > 0 } p) continue;
+            var gp = e.GridPos;
+            if (Math.Max(Math.Abs(gp.X - cell.x), Math.Abs(gp.Y - cell.y)) > 150) continue;
+            var name = e.Type == EntityType.WorldItem ? e.GetComponent<WorldItem>()?.ItemEntity?.GetComponent<Base>()?.Name : e.RenderName;
+            var t = new NearThing(e.Type == EntityType.WorldItem ? "WorldItem:" + (e.GetComponent<WorldItem>()?.ItemEntity?.Path ?? p) : p,
+                name, (int)gp.X, (int)gp.Y, Sightings.StateOf(e), e.GetComponent<Targetable>() is not { } tg || tg.isTargetable);
+            near.TryAdd(t.Key, t);
+        }
+        return near;
+    }
+
+    private void StartHeadsUp(string intent)
+    {
+        var now = _clock.Elapsed.TotalSeconds;
+        var cell = _lastCell.x == int.MinValue ? (0, 0) : _lastCell;
+        _capture = new HeadsUpCapture
+        {
+            Intent = intent, Note = _headsUpNote.Trim() is { Length: > 0 } n ? n : null, StartArea = _areaRaw, StartedAt = now,
+            Quests = new Dictionary<string, int>(_quests), Flags = ReadFlagsSet() ?? new HashSet<QuestFlag>(),
+            Items = _carriedQuest.Select(q => q.name + "|" + q.path).ToHashSet(), Near = NearThings(cell),
+            ObjectiveBefore = _resolved.Label,
+        };
+        _headsUpNote = "";
+        _headsUpOpen = false;
+        Trace("heads-up-start", $"{intent}{(_capture.Note != null ? ": " + _capture.Note : "")}");
+        Toast("Watching: go ahead. What changed goes to Claude once things settle (the heads-up key again ends it now)", 10);
+    }
+
+    private void EndHeadsUp(string endedBy)
+    {
+        if (_capture is not { } c) return;
+        _capture = null;
+        var now = _clock.Elapsed.TotalSeconds;
+        var dto = new HeadsUpDto
+        {
+            Intent = c.Intent, Note = c.Note, StartArea = c.StartArea, EndArea = _areaRaw, Seconds = Math.Round(now - c.StartedAt, 1),
+            EndedBy = endedBy, Dialogs = c.Dialogs.Distinct().ToList(), Events = c.Events.ToList(),
+            ObjectiveBefore = c.ObjectiveBefore, ObjectiveAfter = _resolved.Label,
+        };
+        foreach (var (id, st) in _quests)
+            if (!c.Quests.TryGetValue(id, out var was) || was != st)
+            {
+                var text = _questTexts.TryGetValue(id, out var tx) ? tx : "";
+                var o = _book.Guide.Read(text);
+                dto.QuestChanges.Add($"{id}: {(c.Quests.ContainsKey(id) ? was.ToString() : "new")} -> {st} '{text}' [{o.Kind}{(o.Subject != null ? ": " + o.Subject : "")}]");
+            }
+        foreach (var id in c.Quests.Keys.Where(id => !_quests.ContainsKey(id))) dto.QuestChanges.Add($"{id}: done");
+        if (ReadFlagsSet() is { } flags)
+        {
+            dto.FlagsSet = flags.Where(f => !c.Flags.Contains(f)).Select(f => f.ToString()).ToList();
+            dto.FlagsCleared = c.Flags.Where(f => !flags.Contains(f)).Select(f => f.ToString()).ToList();
+        }
+        _carriedAt = -1;
+        RefreshCarried();
+        var held = _carriedQuest.Select(q => q.name + "|" + q.path).ToHashSet();
+        dto.ItemsGained = held.Where(h => !c.Items.Contains(h)).Select(ShowItem).ToList();
+        dto.ItemsLost = c.Items.Where(h => !held.Contains(h)).Select(ShowItem).ToList();
+        // Things near you: compared only within one area (another area's entities are all "new").
+        if (c.StartArea == _areaRaw && _lastCell.x != int.MinValue) HeadsUpCapture.Diff(dto, c.Near, NearThings(_lastCell));
+        var changes = dto.QuestChanges.Count + dto.FlagsSet.Count + dto.ItemsGained.Count + dto.ItemsLost.Count + dto.Dialogs.Count + dto.EntityChanges.Count;
+        RouteStateDto? state = null;
+        try { state = BuildState(); state.MapPath.Clear(); } catch { /* the capture still goes out */ }
+        var fb = new FeedbackDto
+        {
+            Kind = "feedback", Event = "heads-up", Note = $"{c.Intent}{(c.Note != null ? ": " + c.Note : "")}", Area = _areaRaw, AreaName = _areaName,
+            Target = _targetSpec, Label = _resolved.Label, StepIndex = _stepIndex,
+            PlayerGrid = _lastCell.x == int.MinValue ? null : [_lastCell.x, _lastCell.y], State = state, Capture = dto,
+        };
+        _feedback.Write(fb);
+        var sent = _bridge.Publish("feedback", fb, keep: true);
+        Toast(sent is { Ok: true }
+            ? $"Heads-up sent (#{sent.Seq}): {changes} change{(changes == 1 ? "" : "s")} for Claude to map into the route"
+            : $"Heads-up kept for Claude ({changes} changes): {_bridge.Why ?? "the AI Bridge did not take it"}", 10);
+    }
+
+    /// <summary>The heads-up panel: what you are about to do (one click starts watching), or the running capture.</summary>
+    private void DrawHeadsUp(double now)
+    {
+        if (!_headsUpOpen) return;
+        ImGui.SetNextWindowPos(new Vector2(Settings.Debug.StatusX.Value, Settings.Debug.StatusY.Value + 110), ImGuiCond.Appearing);
+        ImGui.SetNextWindowBgAlpha(0.92f);
+        if (!ImGui.Begin("Heads up##WhatsARoute", ref _headsUpOpen, ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoCollapse))
+        {
+            ImGui.End();
+            return;
+        }
+        ImGui.TextDisabled($"{_areaName}  ·  what are you about to do?");
+        for (var i = 0; i < Intents.Length; i++)
+        {
+            if (i > 0 && i % 4 != 0) ImGui.SameLine();
+            if (ImGui.Button(Intents[i].label)) StartHeadsUp(Intents[i].intent);
+        }
+        ImGui.SetNextItemWidth(360);
+        if (ImGui.InputTextWithHint("##headsupnote", "what is it? e.g. 'give the shark fin to Kaimana' (Enter starts)", ref _headsUpNote, 300, ImGuiInputTextFlags.EnterReturnsTrue)
+            && _headsUpNote.Trim().Length > 0)
+            StartHeadsUp("Other");
+        ImGui.End();
+    }
+
     private void ReadQuests()
     {
         _quests.Clear();
+        _questTexts.Clear();
         List<string>? changed = null;
         try
         {
@@ -527,8 +716,14 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             {
                 if (quest?.Id is not { } id || state == null) continue;
                 _quests[id] = state.QuestStateId;
+                _questTexts[id] = state.QuestStateText ?? "";
                 if (_questsBefore.Count > 0 && (!_questsBefore.TryGetValue(id, out var was) || was != state.QuestStateId))
-                    (changed ??= new()).Add($"{id}:{state.QuestStateId} {state.QuestStateText}");
+                {
+                    // The kind it was read as goes with it: a wrong kind in the trace is a rule to fix in objective-types.json.
+                    var o = _book.Guide.Read(state.QuestStateText);
+                    (changed ??= new()).Add($"{id}:{state.QuestStateId} {state.QuestStateText} [{o.Kind}{(o.Subject != null ? ": " + o.Subject : "")}{(o.AreaName != null ? " in " + o.AreaName : "")}]");
+                    _capture?.Changed(_clock.Elapsed.TotalSeconds);
+                }
             }
             if (_questsBefore.Count > 0)
                 foreach (var id in _questsBefore.Keys)
@@ -542,16 +737,50 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         }
         if (changed != null) Trace("quest", quests: changed);
         _questObj = null;
+        QuestObjective? here = null;
         _altAreas.Clear();
         foreach (var q in _book.Route.Quests)
         {
             if (q.Optional && !Settings.Route.IncludeOptional) continue;
             if (!_quests.TryGetValue(q.Quest, out var st)) continue;
             if (q.States is { Length: > 0 } && Array.IndexOf(q.States, st) < 0) continue;
+            if (q.UnlessFlag is { Length: > 0 } uf && (_flagsSet ??= ReadFlagsSet())?.Contains(Enum.TryParse<QuestFlag>(uf, out var ufv) ? ufv : (QuestFlag)(-1)) == true) continue;
             if (_questObj == null) _questObj = q;
             else _altAreas.Add(RouteBook.FirstOf(q.Area));   // other open objectives: the only other choices worth a ring on the map
+            // An open objective for the area you are in beats the planned order (Act 4: you sailed to Shrike before
+            // Whakapanu; the route must not send you back to the ship).
+            // Same quest only: across quests the file order is the plan (Act 3's snake pit before the waterways).
+            here ??= q.Quest == _questObj.Quest && q.Area.Length > 0 && RouteBook.LikeAny(_areaRaw, q.Area) ? q : null;
         }
+        if (here != null && _questObj != here) { _altAreas.Add(RouteBook.FirstOf(_questObj!.Area)); _questObj = here; }
+        // The quests whose own words can lead (route.json Main and Follow; a Quests entry with Target "quest" pins its own).
+        _autoHere.Clear(); _autoPlan.Clear();
+        if (_questObj is { Target: "quest" } qo)
+        {
+            if (_questTexts.TryGetValue(qo.Quest, out var tx)) { _autoHere.Add((qo.Quest, _book.Guide.Read(tx))); _autoPlan.Add(_autoHere[0]); }
+            return;
+        }
+        // Acting here: the nearest leads, the story first on a tie (one NPC for both: "hire her ship" over "travel to
+        // Kedge Bay"). The plan when nothing is here: the story first.
+        var side = Followed(_book.Route.Follow);
+        var main = Followed(_book.Route.Main);
+        _autoHere.AddRange(main); _autoHere.AddRange(side.Where(s => main.All(m => m.Quest != s.Quest)));
+        _autoPlan.AddRange(main); _autoPlan.AddRange(side.Where(s => main.All(m => m.Quest != s.Quest)));
     }
+
+    private List<(string Quest, QuestObjectiveText Read)> Followed(List<string> patterns)
+    {
+        var list = new List<(string, QuestObjectiveText)>();
+        foreach (var f in patterns)
+            foreach (var id in _quests.Keys.Where(k => RouteBook.Like(k, f)).OrderBy(k => k, StringComparer.Ordinal))
+                if (_questTexts.TryGetValue(id, out var tx) && list.All(x => x.Item1 != id)) list.Add((id, _book.Guide.Read(tx)));
+        return list;
+    }
+
+    private readonly Dictionary<string, string> _questTexts = new();   // open quest id -> its state's text
+    private readonly List<(string Quest, QuestObjectiveText Read)> _autoHere = new(), _autoPlan = new();
+    private (string Quest, QuestObjectiveText Read)? _auto;            // the quest whose text leads now, read as an objective
+    private bool _textOnly;                                             // the objective has no place: the card says what to do
 
     private readonly HashSet<string> _altAreas = new(StringComparer.OrdinalIgnoreCase);
 
@@ -731,28 +960,47 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private readonly Dictionary<DoneWhenSeenRule, bool> _seenCache = new();
 
     private readonly List<string> _carried = new();
+    private readonly List<(string path, string name)> _carriedQuest = new();   // quest items carried: path and base name
     private double _carriedAt = -1;
 
-    /// <summary>An item in your inventories whose metadata path contains <paramref name="part"/>; the paths are read at most once a second.</summary>
-    private bool Carrying(string part)
+    /// <summary>The inventories' item paths (and the quest items' names), read at most once a second.</summary>
+    private void RefreshCarried()
     {
         var now = _clock.Elapsed.TotalSeconds;
-        if (now - _carriedAt >= 1)
+        if (now - _carriedAt < 1) return;
+        _carriedAt = now;
+        _carried.Clear();
+        _carriedQuest.Clear();
+        try
         {
-            _carriedAt = now;
-            _carried.Clear();
-            try
-            {
-                foreach (var inv in GameController.IngameState.Data.ServerData.PlayerInventories)
-                    if (inv?.Inventory?.Items is { } items)
-                        foreach (var it in items)
-                            if (it?.Path is { } p) _carried.Add(p);
-            }
-            catch (Exception ex) { _why = $"ServerData.PlayerInventories: {ex.Message}"; }
+            foreach (var inv in GameController.IngameState.Data.ServerData.PlayerInventories)
+                if (inv?.Inventory?.Items is { } items)
+                    foreach (var it in items)
+                    {
+                        if (it?.Path is not { } p) continue;
+                        _carried.Add(p);
+                        if (p.Contains("/QuestItems/", StringComparison.Ordinal)) _carriedQuest.Add((p, it.GetComponent<Base>()?.Name ?? p.Split('/')[^1]));
+                    }
         }
+        catch (Exception ex) { _why = $"ServerData.PlayerInventories: {ex.Message}"; }
+    }
+
+    /// <summary>An item in your inventories whose metadata path contains <paramref name="part"/>.</summary>
+    private bool Carrying(string part)
+    {
+        RefreshCarried();
         foreach (var p in _carried)
             if (p.Contains(part, StringComparison.OrdinalIgnoreCase)) return true;
         return false;
+    }
+
+    /// <summary>The path of a carried quest item whose name contains <paramref name="name"/> ("Tattoo of Tawhoa", "Rakiata's Lesson").</summary>
+    private string? CarriedQuestItemNamed(string name)
+    {
+        RefreshCarried();
+        foreach (var (p, n) in _carriedQuest)
+            if (n.Contains(name, StringComparison.OrdinalIgnoreCase) || name.Contains(n, StringComparison.OrdinalIgnoreCase)) return p;
+        return null;
     }
 
     private const string QuestItemSpec = "item:/QuestItems/";
@@ -841,13 +1089,121 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         dl.AddText(ImGui.GetFont(), size, tp, Glow.Col(core, 0.95f), hint);
     }
 
+    /// <summary>An objective with nothing to walk to (an item to use, a dialog to wait through): no path, the card says what to do.</summary>
+    private void NoPlaceObjective(string spec, string label)
+    {
+        _stepIndex = -1;
+        _targetSpec = spec;
+        _resolved.Goals.Clear(); _resolved.GoalEntities.Clear();
+        _resolved.Label = label;
+        _resolved.Why = null; _resolved.TravelTo = null; _resolved.ViaPortal = false; _resolved.FromMemory = false; _resolved.ViaTravelMap = false;
+        _field = null; _goalSig = ""; _frame.Ready = false; _frame.HasGoalBox = false; _frame.Detected = false;
+        _goalEntity = null; _goalRender = null;
+        if (_targetSpec + "|" + _resolved.Label is var objective && objective != _lastObjective) { _lastObjective = objective; Trace("objective"); }
+    }
+
+    private enum AutoUse { No, Spec, TextOnly, UseItem }
+
+    /// <summary>"|target" where route.json's NpcPlaces says <paramref name="name"/> stands in this area (out of sight), else "".</summary>
+    private string NpcPlace(string name)
+    {
+        foreach (var (npc, places) in _book.Route.NpcPlaces)
+            if (QuestGuide.NameMatches(npc, name))
+                foreach (var (area, target) in places)
+                    if (RouteBook.Like(_areaRaw, area)) return "|" + target;
+        return "";
+    }
+
+    /// <summary>The card's line for a quest sentence: as the game wrote it, without the closing period.</summary>
+    private static string Sentence(QuestObjectiveText o) => o.Sentence.TrimEnd('.', ' ');
+
+    /// <summary>
+    /// A quest state's sentence as this area's objective (the kinds and their handling: docs/objective-types.md).
+    /// Things you act on (an NPC to talk to, an item, a thing to click, a boss in sight, an area named to return to) beat
+    /// the area's steps once they resolve; ways onward (enter, travel, explore, a boss not in sight) lead only where the
+    /// area has no steps, since the steps are the plan there (optional rewards first, then the exit). Resolves into
+    /// _resolved and labels it with the sentence.
+    /// </summary>
+    private AutoUse AutoObjective(QuestObjectiveText o, bool hasSteps, out string? spec, out bool actHere)
+    {
+        spec = null;
+        actHere = false;
+        var act = GameController.Area.CurrentArea?.Act ?? 0;
+        var strong = true;
+        string? AreaId(string? name) => name == null ? null : _resolver.AreaIdByName(GameController, name, act);
+        if (AreaId(o.AreaName) is { } there && !RouteBook.Like(_areaRaw, there))
+            { spec = "travel:" + there; strong = false; }   // "Return to Kingsmarch and speak to ...": get there first (the plan, not an act here)
+        else
+            switch (o.Kind)
+            {
+                case ObjectiveKind.Talk when o.Subject is { } who && !who.Equals("someone", StringComparison.OrdinalIgnoreCase):
+                    spec = $"npc:{who}|object:{who}{NpcPlace(who)}";   // a totem takes rewards too ("Take a Reward from the Hinekora Totem")
+                    break;
+                case ObjectiveKind.Talk when o.Subject == null && o.Names.Count > 0:
+                    spec = string.Join("|", o.Names.Select(n => "npc:" + n)) + string.Concat(o.Names.Select(NpcPlace));   // "Take a reward from her": Kaimana, named earlier
+                    break;
+                case ObjectiveKind.Use when o.Subject == null && o.Names.Select(CarriedQuestItemNamed).FirstOrDefault(p => p != null) is { } named:
+                    _useItemPart = named;                // "... rewarded you with a Tattoo of Hinekora. Use it."
+                    actHere = true; return AutoUse.UseItem;
+                case ObjectiveKind.Defeat when o.Subject == null:
+                    spec = string.Join("|", o.Names.Select(n => "monster:" + n).Append("radar:Boss*|radar:*Boss*|radar:Arena"));
+                    strong = false;
+                    break;
+                case ObjectiveKind.Sail:
+                    spec = "npc:Makoru|npc:Rhodri" + NpcPlace("Makoru");   // the ship's captain opens the sailing map
+                    break;
+                case ObjectiveKind.PickUp:
+                    spec = o.Subject is { } it ? $"item:{it}|{QuestItemSpec}" : QuestItemSpec;
+                    break;
+                case ObjectiveKind.Use when o.Subject is { } use:
+                    if (CarriedQuestItemNamed(use) is { } path) { _useItemPart = path; actHere = true; return AutoUse.UseItem; }
+                    spec = "object:" + use;             // "Use the Verisium Anvil": a thing in the world
+                    break;
+                case ObjectiveKind.Click when o.Subject is { } thing:
+                    spec = "object:" + thing;
+                    break;
+                case ObjectiveKind.Defeat when o.Subject is { } foe:
+                    spec = $"monster:{foe}|radar:Boss*|radar:*Boss*|radar:Arena";
+                    strong = false;                     // strong only once the monster itself is in sight (below)
+                    break;
+                case ObjectiveKind.Enter or ObjectiveKind.Travel or ObjectiveKind.Explore when o.Subject is { } where:
+                    if (AreaId(where) is { } id) { if (!RouteBook.Like(_areaRaw, id)) spec = "travel:" + id; strong = false; }
+                    else if (o.Kind == ObjectiveKind.Enter) { spec = "transition:" + where; strong = false; }
+                    else if (o.Kind == ObjectiveKind.Travel) spec = "npc:" + where;   // "Return to Dannig": a person, not an area
+                    else strong = false;
+                    break;
+            }
+        if (spec == null)
+        {
+            // Nothing to walk to: the area's steps lead where there are some (explore, find), else the sentence alone
+            // (witness, survive, summon) instead of the old "Exit" fallback that sent the player anywhere.
+            return hasSteps && o.Kind is not (ObjectiveKind.Wait or ObjectiveKind.Summon) ? AutoUse.No : AutoUse.TextOnly;
+        }
+        var rt = Stopwatch.GetTimestamp();
+        _resolver.Resolve(GameController, _book, spec, _areaRaw, _resolved);
+        _resolveUs = _resolveUs * 0.8 + 0.2 * Stopwatch.GetElapsedTime(rt).TotalMicroseconds;
+        var found = _resolved.Goals.Count > 0;
+        if (o.Kind == ObjectiveKind.Defeat && _resolved.GoalEntities.Any(g => g.Entity.Type == EntityType.Monster)) strong = true;
+        actHere = strong && found;
+        if (hasSteps && !actHere) return AutoUse.No;
+        if (!hasSteps && !found && o.Kind is ObjectiveKind.Explore) return AutoUse.TextOnly;
+        if (o.Kind == ObjectiveKind.Sail && _questObj is { } plan && !RouteBook.LikeAny(_areaRaw, plan.Area))
+            // Which island: the plan's next one (route.json's island order), named on the card and the marker.
+            _resolved.Label = $"Speak to Makoru: set sail for {_resolver.AreaName(GameController, RouteBook.FirstOf(plan.Area))}";
+        else if (_resolved.TravelTo == null) _resolved.Label = Sentence(o);   // a travel keeps "Exit to X" / "Travel to X": the way, not the deed
+        else if (o.AreaName != null) _resolved.Label = $"{Sentence(o)}: {_resolved.Label}";
+        return AutoUse.Spec;
+    }
+
     private void ResolveObjective(AreaGrid grid, (int x, int y) cell)
     {
         string spec;
         var steps = _book.StepsFor(_areaRaw);
-        var q = Settings.Route.Mode.Value == "Route" ? _questObj : null;
+        var route = Settings.Route.Mode.Value == "Route";
+        var q = route ? _questObj : null;
         _useItem = false;
-        if (Settings.Route.Mode.Value == "Route")
+        _textOnly = false;
+        if (route)
             foreach (var u in _book.Route.Use)
             {
                 if (u.Item.Length == 0 || !Carrying(u.Item)) continue;
@@ -855,14 +1211,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 // step should be to open my inventory, then use it"): nothing to walk to, the card says what to do.
                 _useItem = true;
                 _useItemPart = u.Item;
-                _stepIndex = -1;
-                _targetSpec = "use:" + u.Item;
-                _resolved.Goals.Clear(); _resolved.GoalEntities.Clear();
-                _resolved.Label = u.Label ?? "Use it from your inventory";
-                _resolved.Why = null; _resolved.TravelTo = null; _resolved.ViaPortal = false; _resolved.FromMemory = false;
-                _field = null; _goalSig = ""; _frame.Ready = false; _frame.HasGoalBox = false; _frame.Detected = false;
-                _goalEntity = null; _goalRender = null;
-                if (_targetSpec + "|" + _resolved.Label is var useObjective && useObjective != _lastObjective) { _lastObjective = useObjective; Trace("objective"); }
+                NoPlaceObjective("use:" + u.Item, u.Label ?? "Use it from your inventory");
                 return;
             }
         if (Settings.Route.Mode.Value == "Route" && Settings.Route.PickUpQuestItems.Value && QuestItemNear(cell))
@@ -876,6 +1225,59 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             goto Resolved;
         }
         _frame.Detected = false;
+        _auto = null;
+        if (route && _autoHere.Count + _autoPlan.Count > 0)
+        {
+            // Steps still to do here: they are the plan in this area, so only acting here beats them.
+            var pending = false;
+            for (var i = 0; i < steps.Count && !pending; i++)
+                pending = !StepDone(i, steps[i]) && (Settings.Route.IncludeOptional || !steps[i].Optional);
+            // 1. A followed quest's thing right here (an NPC in sight, an item, a thing to click, a boss in view).
+            // 2. Else, with no route.json objective for the state: the story's own words (travel, enter, wait...).
+            AutoUse use = AutoUse.No; string? autoSpec = null;
+            // Several can act here (Makoru for the story, Farrow for a side quest, both in town): the nearest leads, so
+            // the player standing at the ship isn't sent across town first (2026-10-12). An item to use is nearest of all.
+            var bestD = int.MaxValue;
+            (string, QuestObjectiveText)? lastTried = null;
+            foreach (var c in _autoHere)
+            {
+                // Only kinds that can act here are tried (each try is a resolve, twice a second).
+                if (c.Read.Kind is not (ObjectiveKind.Talk or ObjectiveKind.PickUp or ObjectiveKind.Use or ObjectiveKind.Click
+                    or ObjectiveKind.Defeat or ObjectiveKind.Sail or ObjectiveKind.Travel)) continue;
+                var tried = AutoObjective(c.Read, pending, out var triedSpec, out var acts);
+                lastTried = c;
+                if (tried == AutoUse.No || !acts) continue;
+                var d = tried == AutoUse.UseItem ? 0 : int.MaxValue - 1;
+                foreach (var g in _resolved.Goals) d = Math.Min(d, Math.Max(Math.Abs(g.x - cell.x), Math.Abs(g.y - cell.y)));
+                // Something loaded beats a remembered place or a tile (NpcPlaces): those can be nearer only on paper.
+                if (tried != AutoUse.UseItem && (_resolved.FromMemory || !_resolved.FromEntities)) d += 100_000;
+                if (d < bestD) { bestD = d; _auto = c; use = tried; autoSpec = triedSpec; }
+            }
+            // _resolved holds the last one tried: resolve the winner again unless it was the last.
+            if (_auto is { } near && !Equals(lastTried, near)) use = AutoObjective(near.Read, pending, out autoSpec, out _);
+            if (_auto == null && (q == null || q.Target == "quest"))
+                foreach (var c in _autoPlan)
+                    if ((use = AutoObjective(c.Read, pending, out autoSpec, out _)) != AutoUse.No) { _auto = c; break; }
+            if (_auto is { } auto)
+                switch (use)
+                {
+                    case AutoUse.TextOnly:
+                        _textOnly = true;
+                        NoPlaceObjective("quest:" + auto.Quest, Sentence(auto.Read));
+                        return;
+                    case AutoUse.UseItem:
+                        _useItem = true;
+                        NoPlaceObjective("use:" + _useItemPart, Sentence(auto.Read));
+                        return;
+                    case AutoUse.Spec:
+                        _stepIndex = -1;
+                        spec = autoSpec!;
+                        _targetSpec = spec;
+                        goto Resolved;   // AutoObjective resolved it, label included
+                }
+        }
+        // A "quest" entry that its text did not place: its Area travel still applies, else the area's steps lead.
+        if (q is { Target: "quest" } && (q.Area is "" or "*" || RouteBook.LikeAny(_areaRaw, q.Area))) q = null;
         if (q != null && !RouteBook.LikeAny(_areaRaw, q.Area))
         {
             _stepIndex = -1;
@@ -1100,9 +1502,15 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         if (Settings.Route.NextStep.PressedOnce()) { _stepShift++; _nextResolve = 0; }
         if (Settings.Route.PreviousStep.PressedOnce()) { _stepShift--; _nextResolve = 0; }
         if (Settings.Route.Feedback.PressedOnce()) _feedbackOpen = !_feedbackOpen;
+        if (Settings.Route.HeadsUp.PressedOnce())
+        {
+            if (_capture != null) EndHeadsUp("press");
+            else _headsUpOpen = !_headsUpOpen;
+        }
         if (!GameController.InGame) return;
         var time = _clock.Elapsed.TotalSeconds;
         DrawFeedback();
+        DrawHeadsUp(time);
         DrawToast(time);
         var core = Glow.Rgb(Settings.World.PathCore.Value);
         var glow = Glow.Rgb(Settings.World.PathGlow.Value);
@@ -1242,7 +1650,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             var grid = _grid;
             var field = _field;
             var travel = _resolved.TravelTo != null;
-            var questTarget = route && _stepIndex < 0 && _questObj != null && !travel;
+            var questTarget = route && _stepIndex < 0 && (_questObj != null || _auto != null) && !travel;
             if (Settings.Debug.DetailedStatus.Value)
                 _statusDetail = $"{_areaRaw}  ·  {(_stepIndex >= 0 ? $"step {_stepIndex + 1}/{steps.Count}  ·  " : "")}{_targetSpec}\n"
                     + $"{_pathLen:0} units  ·  goals {_resolved.Goals.Count}  ·  field {field?.BuildMs:0} ms  ·  edges {_frame.EdgePieces.Count}\n"
@@ -1276,6 +1684,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 PortalKey = _portalKey,
                 DoorAhead = _doorAhead is { IsValid: true, IsTargetable: true },
                 UseItem = _useItem,
+                TextOnly = _textOnly,
                 BossFight = _bossFight,
                 TravelHub =_areaRaw.StartsWith("G2_", StringComparison.OrdinalIgnoreCase) ? "the Desert Map" : "the waypoint",
                 TravelMapOpen = _map.Open,
@@ -1341,6 +1750,15 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         foreach (var p in _frame.MapPath) { dto.MapPath.Add((int)p.X); dto.MapPath.Add((int)p.Y); }
         dto.ActiveQuests = _quests.Select(kv => $"{kv.Key}:{kv.Value}").ToList();
         dto.QuestObjective = _questObj == null ? null : $"{_questObj.Quest} -> {_questObj.Area} ({_questObj.Label})";
+        foreach (var (id, st) in _quests)
+        {
+            var text = _questTexts.TryGetValue(id, out var tx) ? tx : "";
+            var o = _book.Guide.Read(text);
+            dto.QuestReads.Add(new QuestReadDto { Quest = id, State = st, Text = text, Kind = o.Kind.ToString(), Subject = o.Subject, AreaName = o.AreaName });
+        }
+        if (_auto is { } au) dto.QuestText = $"{au.Quest}: {au.Read.Kind}{(au.Read.Subject != null ? " " + au.Read.Subject : "")}{(au.Read.AreaName != null ? " in " + au.Read.AreaName : "")} ('{au.Read.Sentence}')";
+        dto.RulesWhy = _book.Guide.Why;
+        if (_capture is { } cap) dto.HeadsUp = $"{cap.Intent}{(cap.Note != null ? ": " + cap.Note : "")} ({_clock.Elapsed.TotalSeconds - cap.StartedAt:0} s)";
         dto.TravelTo = _resolved.TravelTo;
         dto.TravelMapOpen = _map.Open;
         if (_map.Open) dto.Notes.Add($"map view: {_map.Mode} ('{_map.Title}')");

@@ -47,6 +47,10 @@ public sealed class RouteSettings
     [Menu("Feedback key", "Opens the feedback panel: tell the agent the route works, or what is wrong, with what the route sees right now")]
     public HotkeyNodeV2 Feedback { get; set; } = new(Keys.F8);
 
+    [Menu("Heads-up key", "Before you do something for a quest (talk to someone, pick up or use an item, click something): press it, " +
+        "pick what you are about to do, do it. What changed (quest states, flags, items, dialogs, things near you) goes to Claude to map into the route")]
+    public HotkeyNodeV2 HeadsUp { get; set; } = new(Keys.F7);
+
     [Menu("Live folder", "route.live.json (the agent's live edits, laid over route.json, reloaded when written) and feedback.jsonl. " +
         "Empty: %LOCALAPPDATA%\\Hexile\\WhatsARoute")]
     public TextNode LiveFolder { get; set; } = new("");

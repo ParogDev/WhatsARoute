@@ -34,6 +34,7 @@ public sealed class StatusPanel
         public string? PortalKey;       // the player's own portal binding ("Shift+T"), from the game config
         public bool DoorAhead;          // a closed door on the path ahead: click it
         public bool UseItem;            // the objective is an item to use from the inventory: no path
+        public bool TextOnly;           // the quest text says what to do and there is no place to go (witness, summon, survive)
         public bool BossFight;          // a unique boss alive near you: the world drawing is hidden
         public string? TravelHub;      // what to take in town after the portal: "the Desert Map" (Act 2), else "the waypoint"
         public float PathLen;           // world units along the whole route
@@ -183,6 +184,7 @@ public sealed class StatusPanel
                 : ("Reading the area's terrain", Tone.Busy);
         if (i.BossFight) return ("Boss fight: the route is hidden until it's over", Tone.Info);
         if (i.UseItem) return ("Open your inventory and right-click it", Tone.Info);
+        if (i.TextOnly) return ("Nothing to walk to: do what the quest says", Tone.Info);
         if (i.Blocked)
         {
             // The player's words, and always what to do next (2026-10-11, the user: "cut off from it, and no exit found
@@ -285,6 +287,6 @@ public sealed class StatusPanel
         && a.StepIndex == b.StepIndex && a.StepCount == b.StepCount && a.DoneMask == b.DoneMask
         && string.Equals(a.Note, b.Note, StringComparison.Ordinal) && string.Equals(a.Why, b.Why, StringComparison.Ordinal) && string.Equals(a.AreaWhy, b.AreaWhy, StringComparison.Ordinal)
         && a.GridReady == b.GridReady && a.FieldReady == b.FieldReady && a.PathReady == b.PathReady && a.Blocked == b.Blocked && a.FromMemory == b.FromMemory
-        && a.HasTravelTo == b.HasTravelTo && a.ViaTravelMap == b.ViaTravelMap && a.ViaPortal == b.ViaPortal && string.Equals(a.PortalKey, b.PortalKey, StringComparison.Ordinal) && a.TravelMapOpen == b.TravelMapOpen && a.StopChosen == b.StopChosen && a.DoorAhead == b.DoorAhead && a.UseItem == b.UseItem && a.BossFight == b.BossFight
+        && a.HasTravelTo == b.HasTravelTo && a.ViaTravelMap == b.ViaTravelMap && a.ViaPortal == b.ViaPortal && string.Equals(a.PortalKey, b.PortalKey, StringComparison.Ordinal) && a.TravelMapOpen == b.TravelMapOpen && a.StopChosen == b.StopChosen && a.DoorAhead == b.DoorAhead && a.UseItem == b.UseItem && a.TextOnly == b.TextOnly && a.BossFight == b.BossFight
         && (a.PathCells <= 4) == (b.PathCells <= 4) && string.Equals(a.Detail, b.Detail, StringComparison.Ordinal);
 }

@@ -73,6 +73,8 @@ public sealed class QuestObjective
     /// "transition:G3_3" rather than a waypoint not unlocked yet). Areas not listed travel as usual.
     /// </summary>
     public Dictionary<string, string>? Via { get; set; }
+    /// <summary>QuestFlag name: the entry no longer applies once it is set (an island whose boss is dead: G4_3_2SirenBossKilled).</summary>
+    public string? UnlessFlag { get; set; }
 }
 
 public sealed class RouteFile
@@ -86,6 +88,21 @@ public sealed class RouteFile
     public string? Message { get; set; }
     /// <summary>Reward items to use from the inventory (The Flame Core): while one is carried, using it is the objective, anywhere.</summary>
     public List<UseItem> Use { get; set; } = new();
+    /// <summary>
+    /// Side quests whose own text leads where it can be acted on here (an NPC in sight to talk to, an item, a thing to
+    /// click, a boss in view), ahead of the Quests entries: each state's sentence is read as an objective (QuestGuide,
+    /// objective-types.json). A quest id, or a pattern ("HallsOfTheDead*"). A Quests entry with Target "quest" does the
+    /// same for its own states only.
+    /// </summary>
+    public List<string> Follow { get; set; } = new();
+    /// <summary>The story quests: their text leads when nothing else does (Follow's side quests lead only where they act here).</summary>
+    public List<string> Main { get; set; } = new();
+    /// <summary>
+    /// Where an NPC stands per area, for when they are out of sight (the game only sends entities near you): NPC name to
+    /// area pattern to a target ("Makoru": { "G4_town": "tile:*KalguurShip_Town*" }). A "Speak to X" objective adds it
+    /// as its fallback, after the NPC itself and the places seen this visit.
+    /// </summary>
+    public Dictionary<string, Dictionary<string, string>> NpcPlaces { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 /// <summary>An item to right-click in the inventory once you have it (a permanent buff), by metadata path part.</summary>
@@ -133,7 +150,12 @@ public sealed class RouteBook
     private DateTime _routeStamp, _liveStamp;
 
     /// <summary>True when route.json or the live file was written since the last load (two stat calls).</summary>
-    public bool Changed() => Stamp(_routePath) != _routeStamp || (LivePath != null && Stamp(LivePath) != _liveStamp);
+    public bool Changed() => Stamp(_routePath) != _routeStamp || (LivePath != null && Stamp(LivePath) != _liveStamp) || Stamp(_rulesPath) != _rulesStamp;
+
+    /// <summary>objective-types.json's rules: quest-state texts read as objectives.</summary>
+    public QuestGuide Guide { get; } = new();
+    private string _rulesPath = "";
+    private DateTime _rulesStamp;
 
     private static DateTime Stamp(string path)
     {
@@ -146,6 +168,9 @@ public sealed class RouteBook
         LoadRoute(pluginDir);
         LoadLive(liveDir);
         LoadRadar(pluginDir);
+        _rulesPath = Path.Combine(pluginDir, "objective-types.json");
+        _rulesStamp = Stamp(_rulesPath);
+        Guide.Load(pluginDir);
     }
 
     private void LoadLive(string? liveDir)
@@ -162,6 +187,13 @@ public sealed class RouteBook
         foreach (var (key, steps) in live.Areas) Route.Areas[key] = steps;
         Route.Quests.InsertRange(0, live.Quests);
         Route.Use.InsertRange(0, live.Use);
+        Route.Follow.InsertRange(0, live.Follow.Where(f => !Route.Follow.Contains(f, StringComparer.OrdinalIgnoreCase)));
+        Route.Main.InsertRange(0, live.Main.Where(f => !Route.Main.Contains(f, StringComparer.OrdinalIgnoreCase)));
+        foreach (var (npc, places) in live.NpcPlaces)
+        {
+            if (!Route.NpcPlaces.TryGetValue(npc, out var mine)) Route.NpcPlaces[npc] = mine = new();
+            foreach (var (area, target) in places) mine[area] = target;
+        }
         LiveAreas = live.Areas.Count;
         LiveQuests = live.Quests.Count;
         LiveMessage = live.Message;
