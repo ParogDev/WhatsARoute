@@ -28,6 +28,14 @@ public sealed class RouteStateDto
     /// <summary>Open quests as "QuestId:StateId" (IngameUi.UncompletedQuests).</summary>
     public List<string> ActiveQuests { get; set; } = new();
     public string? QuestObjective { get; set; }
+    /// <summary>Each open quest's current state read as an objective (objective-types.json): what the route would do with it.</summary>
+    public List<QuestReadDto> QuestReads { get; set; } = new();
+    /// <summary>The quest whose own text leads right now (route.json Follow, or a Quests entry with Target "quest"), and how.</summary>
+    public string? QuestText { get; set; }
+    /// <summary>Objective rules that failed to load (objective-types.json), else null.</summary>
+    public string? RulesWhy { get; set; }
+    /// <summary>A heads-up capture running now (F7): its intent and seconds so far.</summary>
+    public string? HeadsUp { get; set; }
     public string? TravelTo { get; set; }
     public bool TravelMapOpen { get; set; }
     public List<TravelStopDto> TravelMapStops { get; set; } = new();
@@ -35,6 +43,16 @@ public sealed class RouteStateDto
     public string? PlayerTile { get; set; }
     /// <summary>Places recorded in this area instance (sightings.json has them per area).</summary>
     public int Sightings { get; set; }
+}
+
+public sealed class QuestReadDto
+{
+    public string Quest { get; set; } = "";
+    public int State { get; set; }
+    public string Text { get; set; } = "";
+    public string Kind { get; set; } = "";
+    public string? Subject { get; set; }
+    public string? AreaName { get; set; }
 }
 
 public sealed class TravelStopDto

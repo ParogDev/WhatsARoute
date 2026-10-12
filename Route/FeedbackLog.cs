@@ -12,7 +12,10 @@ public sealed class FeedbackDto
     public string Kind { get; set; } = "trace";
     public int Seq { get; set; }
     public DateTime At { get; set; }
-    /// <summary>feedback: works | wrong-place | not-advancing | missing-step | note. trace: area | quest | objective | route-reloaded.</summary>
+    /// <summary>
+    /// feedback: works | wrong-place | not-advancing | missing-step | note | heads-up. trace: area | quest | objective |
+    /// route-reloaded | flag | flag-cleared | npc-dialog | item-gained | item-lost | heads-up-start | door | boss-fight | ...
+    /// </summary>
     public string Event { get; set; } = "";
     public string? Note { get; set; }
     public string? Area { get; set; }
@@ -25,6 +28,8 @@ public sealed class FeedbackDto
     public List<string>? Quests { get; set; }
     /// <summary>feedback only: the plugin's whole state at the press (as WhatsARoute.GetState, without the map path).</summary>
     public RouteStateDto? State { get; set; }
+    /// <summary>heads-up only: what changed around what the player did (F7).</summary>
+    public HeadsUpDto? Capture { get; set; }
 }
 
 /// <summary>

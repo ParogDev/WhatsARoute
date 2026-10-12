@@ -39,6 +39,35 @@ MCP tools (server `exileapi`, shared HTTP server): `route_state` (the plugin liv
 - **Quest states drive objectives.** Each new quest state the trace shows (`quest` events: `QuestId:StateId text`) is
   folded into route.json's `Quests` with its text in `Note` ("Verified live <date>: <state> = '<text>'").
 
+## Quest texts are objectives (read `docs/objective-types.md` when a press is about a quest step)
+
+- Every quest state's text is read as an objective type (Talk, PickUp, Use, Click, Defeat, Enter, Travel, Sail,
+  Explore, Wait) by `objective-types.json`. route.json's `Main` (the story) and `Follow` (side quests) say whose
+  texts lead. `route_state` shows each open quest's reading (`questReads`) and the one leading now (`questText`).
+- A step the route missed is usually one of three things:
+  - A wrong reading: fix or add a rule in `objective-types.json`. Patterns are .NET regexes; test them on the state
+    texts first.
+  - A quest that isn't followed: add it to `Follow`.
+  - A place the game doesn't send yet: add `NpcPlaces` or an `Areas` step.
+- The game has every state's text in advance: `run_csharp` over `GameController.Files.QuestStates.EntriesList`
+  (`Quest.Id`, `QuestStateId`, `QuestStateText`). The quest flags are `GameController.IngameState.Data.ServerData.QuestFlags`.
+
+## A heads-up press (Event "heads-up")
+
+The player pressed F7 before doing something for a quest. The event's `Capture` holds what changed:
+
+- `QuestChanges`, `FlagsSet`, `ItemsGained` / `ItemsLost`, `Dialogs`;
+- `EntityChanges` / `EntitiesAppeared` / `EntitiesGone` near them;
+- `Events`: the trace in between.
+
+Map it into the route so the next player is led through it without telling you:
+
+- a new quest state goes into `Quests` (or works already through `Follow`: check its reading);
+- the NPC or object they used becomes a `npc:` / `object:` / `click:` target, using its path or name from the capture;
+- a flag that marks it done becomes a `DoneFlag` / `UnlessFlag`.
+
+Answer in one line: what the route now does at that point.
+
 ## Fixing the route
 
 - **Quick fixes go into the live file first**, so the player sees them within seconds:

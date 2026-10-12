@@ -79,12 +79,15 @@ public sealed class Sightings
     /// Walks the HUD's per-type lists of places (cheap: a few dozen entities, never monsters). A new area instance
     /// (also after a plugin reload, when AreaChange never fired) writes the old one's sightings and starts afresh.
     /// </summary>
+    // NPCs too (2026-10-12): quest texts say "Speak to Makoru", and an NPC you walked past keeps its place in town.
+    private static readonly EntityType[] ScanTypes = [EntityType.AreaTransition, EntityType.Waypoint, EntityType.IngameIcon, EntityType.Npc];
+
     public int Scan(GameController gc, string areaRaw, uint hash, string pluginDir, Func<(int x, int y), IngameData.Tile?> tileAt, double now)
     {
         if (areaRaw != _areaRaw || hash != _hash) ResetArea(areaRaw, hash, pluginDir);
         var added = 0;
         var byType = gc.EntityListWrapper.ValidEntitiesByType;
-        foreach (var t in new[] { EntityType.AreaTransition, EntityType.Waypoint, EntityType.IngameIcon })
+        foreach (var t in ScanTypes)
             if (byType.TryGetValue(t, out var list))
                 foreach (var e in list)
                     if (Note(e, tileAt, now)) added++;

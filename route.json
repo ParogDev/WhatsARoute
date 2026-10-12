@@ -1,7 +1,21 @@
 {
-  "Name": "Acts 2-3 (draft)",
-  "Source": "Act 2: order from the Maxroll PoE2 campaign guide (updated 2026-06-02). Act 3: drafted 2026-10-11 from the known campaign order and Radar's G3 places, fixed live with the player through the feedback key. Places are Radar targets.json names.",
+  "Name": "Acts 2-4 (draft)",
+  "Source": "Act 2: order from the Maxroll PoE2 campaign guide (updated 2026-06-02). Act 3: drafted 2026-10-11 from the known campaign order and Radar's G3 places, fixed live with the player through the feedback key. Act 4: 2026-10-12 from the game's own quest states (Main and Follow read each state's text as an objective: objective-types.json, docs/objective-types.md) and a speedrun research pass (Domistae 0.5.5, poe2db, Maxroll), island order for 100%. Places are Radar targets.json names.",
+  "Main": [ "FindTheSpearPieces", "InterludeToEndgameConnector" ],
+  "Follow": [ "Act4TreasureMapExpedition", "Act4KaruiElder", "HallsOfTheDeadBlankTattoo*", "Act4RescueMedicineWoman", "Act4DeliriumUnlock", "HideoutUnlock", "Act4KillSiren", "Act4ScourgeSkies", "Act4KillPrisoner*", "Act4KillGoblinGiant", "Act4VisitArastas", "A4BossFightPhase1To2ChaseLocalQuest" ],
+  "NpcPlaces": {
+    "Makoru": { "G4_town": "tile:*KalguurShip_Town*" }
+  },
   "Quests": [
+    { "Quest": "FindTheSpearPieces", "States": [52], "Area": "G4_town", "Target": "npc:Makoru|tile:*KalguurShip_Town*", "Label": "Speak to Makoru at the ship: hand her the Boat Charter", "Note": "Verified live 2026-10-12: 52 = 'Speak to Makoru to hire her ship.' Since 0.5.5c the islands stay locked until the charter is handed to her" },
+    { "Quest": "FindTheSpearPieces", "States": [51, 50, 45, 43, 38, 36, 29, 28, 27], "Area": "G4_3_1|G4_3_2", "UnlessFlag": "G4_3_2SirenBossKilled", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to Whakapanu Island (Makoru): map piece, Shark Fin, Diamora", "Note": "100% island order (research): Whakapanu first (Torn Map Piece, the Great White One's Shark Fin, Diamora in the Singing Caverns). Ends when G4_3_2SirenBossKilled is set" },
+    { "Quest": "FindTheSpearPieces", "States": [51, 50, 45, 43, 38, 36, 29, 28, 27], "Area": "G4_7", "UnlessFlag": "G4_7ScourgeKilled", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to Shrike Island (Makoru): map piece, the Scourge of the Skies" },
+    { "Quest": "FindTheSpearPieces", "States": [51, 50, 45, 43, 38, 36, 29, 28, 27], "Area": "G4_5_1|G4_5_2", "UnlessFlag": "G4_5_2PrisonerBossKilled", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to the Abandoned Prison (Makoru): Goddess of Justice, the Prisoner" },
+    { "Quest": "FindTheSpearPieces", "States": [51, 50, 45, 43, 38, 36, 29, 28, 27], "Area": "G4_1_1|G4_1_2", "UnlessFlag": "G4_1_2GoblinGiantBossKilled", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to the Isle of Kin (Makoru): map piece, Krutog" },
+    { "Quest": "Act4KaruiElder", "States": [20], "Area": "G4_4_1|G4_4_2|G4_4_3", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to the Eye of Hinekora (Makoru): Matiki's trial, +5% mana, tattoos", "Note": "Research: freeing Matiki (caged by one of the four island bosses, random per league) opens the Eye. The Karui quests' own texts lead once there (Follow)" },
+    { "Quest": "Act4DeliriumUnlock", "States": [18, 17, 16], "Area": "G4_2_1|G4_2_2", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to Kedge Bay (Makoru): map piece, Journey's End (+2 weapon set points)" },
+    { "Quest": "Act4TreasureMapExpedition", "States": [25, 23, 22, 21, 19], "Area": "G4_13", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to Plunder's Point (Makoru): the Verisium Anvil" },
+    { "Quest": "FindTheSpearPieces", "States": [29, 28, 27], "Area": "G4_8b|G4_8a", "Via": { "G4_town": "npc:Makoru|tile:*KalguurShip_Town*" }, "Label": "Sail to Arastas (Makoru)" },
     { "Quest": "CleanseTheSnakePit", "States": [6, 7, 8, 9], "Area": "G3_4", "Target": "click:SnakePit/SnakeLadyPotionChest|radar:Venom Vial (Pick Bonus)", "Label": "Venom Crypts: search the corpse (Venom Vial)", "Via": { "G3_town": "transition:G3_3", "G3_3": "radar:The Venom Crypts" }, "Note": "Verified live 2026-10-11: 9 = 'Search for the source of their poison' (town), 8 = 'Explore The Venom Crypts' (on entering), 7 = 'You have discovered a corpse. Search it.' (near it, vial not taken yet), 6 = 'Pick up the Corpse-snake Venom' (on the ground, Metadata/Items/QuestItems/Gallows/Act3/SnakeLadyPotion: the quest-item rule leads to it). The corpse is Metadata/Chests/QuestChests/SnakePit/SnakeLadyPotionChest in the boss room" },
     { "Quest": "SearchForTheVaalRepository", "States": [49], "Area": "G3_6_1|G3_6_2", "Label": "Enter Jiquani's Machinarium", "Via": { "G3_5": "transition:G3_6_1" }, "Note": "Verified live 2026-10-11: 49 = 'You have defeated the Machinarium's guardian chimera. Enter the facility.' Xyclucian drops the Chimeral Inscribed Ultimatum (Metadata/Items/QuestItems/UltimatumKeyQuest): the quest-item rule leads to it first" },
     { "Quest": "SearchForTheVaalRepository", "States": [50], "Area": "G3_5", "Label": "Xyclucian, the Chimera (Deadly Nest)", "Note": "Verified live 2026-10-11: 50 = 'A massive beast seems to be guarding the entrance to the Machinarium. Defeat it.' (set in the Chimeral Wetlands)" },
@@ -25,6 +39,72 @@
     { "Item": "SoulCoreConsumable", "Label": "Use The Flame Core (10% Fire Res)", "Note": "Verified live 2026-10-11: Blackjaw (The Oubliette, Jiquani's Machinarium) drops it; Metadata/Items/QuestItems/Gallows/Act3/SoulCoreConsumable in the main inventory until right-clicked" }
   ],
   "Areas": {
+    "G4_3_1": [
+      { "Target": "radar:Map Piece (for expedition island)", "Label": "Torn Map Piece (Petrified Pirate, for Plunder's Point)", "Optional": true, "Note": "Research 2026-10-12: 1 of the 4 Torn Map Pieces Makoru needs for Plunder's Point (Verisium Anvil). Unverified spot: Radar's row is Name '*'" },
+      { "Target": "radar:Boss - Shark", "Label": "The Great White One: its Shark Fin (Kaimana's permanent blessing)", "Optional": true, "Note": "Research: Tribal Medicine; the fin is a quest item (the quest-item rule leads to it once dropped). Kaimana takes it in Ngakanu or on the Kingsmarch docks" },
+      { "Target": "radar:Crab Rare + T4 Support Gem", "Label": "Crabshell Cavern: rare crab (T4 Support Gem)", "Optional": true },
+      { "Target": "radar:Singing Caverns", "Label": "The Singing Caverns" }
+    ],
+    "G4_3_2": [
+      { "Target": "radar:All Res Ammy", "Label": "Beckoning Clam: the Humming Pearl (Rog trades it for an amulet)", "Optional": true, "Note": "Research: survive the clam's ambush for the Humming Pearl (quest item), give it to Rog for a Pearlescent Amulet" },
+      { "Target": "radar:Boss - Siren", "Label": "Diamora, Song of Death (weapon piece or Matiki)", "Note": "Research: bring a Thawing Charm. Drops a weapon piece (the Hooded One gathers it) or guards Matiki in a cage (random per league)" }
+    ],
+    "G4_7": [
+      { "Target": "radar:Map Piece (for expedition island)", "Label": "Torn Map Piece (Corpse Nest)", "Optional": true },
+      { "Target": "radar:Arena", "Label": "The Scourge of the Skies (weapon piece or Matiki)" }
+    ],
+    "G4_5_1": [
+      { "Target": "radar:Flask buff - Need key", "Label": "Chapel: Goddess of Justice (30% flask recovery; needs the Chapel Key)", "Optional": true, "Note": "Research: the Chapel Key drops from monsters here; kill Forael, the Soulkeeper, then click the Goddess of Justice (life or mana flask recovery, changeable)" },
+      { "Target": "radar:Armoury (weapon chests)", "Label": "Armoury: pull the lever (weapon chests)", "Optional": true },
+      { "Target": "radar:Dungeon entrance down", "Label": "Solitary Confinement" }
+    ],
+    "G4_5_2": [
+      { "Target": "radar:Rare Chest + Magic Chest", "Label": "Warden's Office chests", "Optional": true },
+      { "Target": "radar:Boss", "Label": "Open the Fortified Door: the Prisoner (fire the ballista when he kneels)" }
+    ],
+    "G4_1_1": [
+      { "Target": "radar:Map Piece (for expedition island)", "Label": "Torn Map Piece (Flayed Sailor)", "Optional": true },
+      { "Target": "radar:T4 Support Gem", "Label": "Beast Pen: Mimok (T4 Support Gem)", "Optional": true },
+      { "Target": "radar:Boss (+2 Passives)", "Label": "The Blind Beast (Blank Greater Rune for Dannig)", "Optional": true, "Note": "Research: 0.3 gave +2 weapon set points here; 0.5.x drops a Blank Greater Rune (Dannig turns it into a Greater Rune of your choice)" },
+      { "Target": "radar:Volcanic Warrens", "Label": "The Volcanic Warrens" }
+    ],
+    "G4_1_2": [
+      { "Target": "radar:2 Rares - Rare Ring matching last killed golem", "Label": "Magma Twins (rare ring)", "Optional": true },
+      { "Target": "radar:Boss", "Label": "Krutog, Lord of Kin (weapon piece or Matiki)" }
+    ],
+    "G4_4_1": [
+      { "Target": "radar:Pay respects at end", "Label": "Silent Halls: pay respects at the altar (+5% maximum Mana)", "Note": "Research: behind a checkpoint near the end; then talk to Navali" },
+      { "Target": "radar:Hall of the dead", "Label": "The Halls of the Dead" }
+    ],
+    "G4_4_2": [
+      { "Target": "radar:3 Test Areas", "Label": "The three Tests: a Blank Tattoo each (+5 attribute or +5% resistance)", "Note": "Research: Tawhoa (Dex / Lightning), Tasalio (Int / Cold), Ngamahu (Str / Fire); each tattoo goes to the Hinekora Totem or Navali for a permanent choice. The tattoo quests' own texts lead once they start" },
+      { "Target": "radar:Boss - Yama", "Label": "Yama the White: the Silver Coin" }
+    ],
+    "G4_2_1": [
+      { "Target": "radar:Map Piece (for expedition island)", "Label": "Torn Map Piece (Smuggler's Stash)", "Optional": true },
+      { "Target": "radar:Rare + Orb of Alchemy", "Label": "Rare + Orb of Alchemy", "Optional": true },
+      { "Target": "radar:Journey's end", "Label": "Journey's End" }
+    ],
+    "G4_2_2": [
+      { "Target": "radar:Boss - Captain Hartlin", "Label": "Captain Hartlin: the Verisium Ingots (to Dannig)" }
+    ],
+    "G4_8b": [
+      { "Target": "radar:Bell - Exalted", "Label": "Golden Bell (3 Exalted Orbs)", "Optional": true },
+      { "Target": "radar:Bell - Regal", "Label": "Golden Bell (3 Regal Orbs)", "Optional": true },
+      { "Target": "radar:Boss", "Label": "Torvian, Hand of the Saviour" }
+    ],
+    "G4_10": [
+      { "Target": "radar:Chest", "Label": "Excavated cache", "Optional": true },
+      { "Target": "radar:Boss", "Label": "Benedictus, First Herald of Utopia" }
+    ],
+    "G4_11_1b": [
+      { "Target": "radar:Bleed Buff", "Label": "Kaimana (Shark Fin: a permanent blessing)", "Optional": true, "Note": "Research: the medicine woman's hut; with the Shark Fin, Tribal Medicine's own text leads to her" },
+      { "Target": "radar:Heart of the Tribe", "Label": "The Heart of the Tribe" }
+    ],
+    "G4_11_2": [
+      { "Target": "radar:3 Rare chests + 2 magic chests", "Label": "Meeting House chests", "Optional": true },
+      { "Target": "radar:Boss", "Label": "Tavakai, the Chieftain (he flees at half life: follow him)" }
+    ],
     "G3_3": [
       { "Target": "radar:Mighty Silverfist (+2 Passive)|radar:Monkeee (Passive)", "UntilDead": "MonkeyChiefJungle", "Label": "Mighty Silverfist (+2 Passive)", "Optional": true, "Note": "Verified live 2026-10-11: Radar's 'Monkeee' row is Silverfist's spot (one step, not two); his monster is MonkeyChiefJungle, so the step ends on his kill and the route hides while you fight him" },
       { "Target": "radar:Infested Barrens", "Label": "Infested Barrens" }

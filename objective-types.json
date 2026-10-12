@@ -1,0 +1,28 @@
+{
+  "About": "How a quest state's text becomes an objective. The game writes what to do in every quest state (QuestStates.dat, e.g. 'Speak to Makoru to hire her ship.'). Each sentence is matched against these rules, last sentence first (the order to act comes last); the first rule that matches decides the kind and its subject ('x'). Patterns are .NET regexes, case-insensitive; 'x' is the thing to go to, 'area' (optional) an area named in the sentence. A pronoun subject ('it', 'her') is dropped and the names in the whole text stand in for it ('Speak to her' -> Kaimana); 'Return to X' anywhere in the text is the area when the sentence names none. The kinds and how each is handled: docs/objective-types.md. Add a phrase here when a new quest text is not understood (the trace's quest events show the text and the kind it got).",
+  "Rules": [
+    { "Kind": "Sail",    "Pattern": "\\bpick an island and set sail\\b" },
+    { "Kind": "Sail",    "Pattern": "\\bguide your ship to (?:the )?(?<x>.+?)(?=$|[.,])" },
+    { "Kind": "PickUp",  "Pattern": "\\bpick (?:it|them) up\\b" },
+    { "Kind": "Talk",    "Pattern": "^(?<x>[A-Z][\\w']+) is offering you\\b" },
+    { "Kind": "Talk",    "Pattern": "\\breturn to (?<area>[A-Z][\\w' ]+?) and (?:speak|talk) (?:to|with) (?<x>.+?)(?=$|[.,]| (?:to|about|for)\\b)" },
+    { "Kind": "Talk",    "Pattern": "\\b(?:speak|talk) (?:to|with) (?<x>.+?)(?: in (?<area>[A-Z][\\w' ]+?))?(?=$|[.,]| (?:to|about|for|and)\\b)" },
+    { "Kind": "Talk",    "Pattern": "\\bmeet up with (?<x>.+?)(?=$|[.,]| to\\b)" },
+    { "Kind": "Talk",    "Pattern": "\\b(?:show|bring|take|return) (?:it|them|the [\\w' ]+?) (?:back )?to (?<x>(?!Kingsmarch\\b)[A-Z][\\w' ]+?)(?: in (?<area>[A-Z][\\w' ]+?))?(?=$|[.,]| (?:to|and)\\b)" },
+    { "Kind": "Talk",    "Pattern": "\\breturn (?:it|them) to (?:her|him) in (?<area>[A-Z][\\w' ]+?)(?=$|[.,])" },
+    { "Kind": "Talk",    "Pattern": "\\btake (?:a |the )?rewards? from (?:the )?(?<x>.+?)(?: in (?<area>[A-Z][\\w' ]+?))?(?=$|[.,])" },
+    { "Kind": "Talk",    "Pattern": "\\bturn in (?:the )?.+? to (?:the )?(?<x>.+?)(?=$|[.,])" },
+    { "Kind": "Talk",    "Pattern": "\\bask (?<x>[A-Z][\\w']+|someone)\\b" },
+    { "Kind": "Summon",  "Pattern": "\\bsummon (?<x>.+?)(?=$|[.,]| (?:to|and)\\b)" },
+    { "Kind": "PickUp",  "Pattern": "\\bpick up (?:the |its |a |an )?(?<x>.+?)(?=$|[.,])" },
+    { "Kind": "Talk",    "Pattern": "\\btake (?:the |a )?(?!rewards?\\b)[\\w' ]+? from (?<x>.+?)(?=$|[.,])" },
+    { "Kind": "Use",     "Pattern": "(?<!\\ba )\\buse (?:the |a |an )?(?<x>.+?)(?=$|[.,]| to\\b)" },
+    { "Kind": "Click",   "Pattern": "\\b(?:open|activate|ignite|light|pull|place|insert|peer into|configure .+? by using) (?:the |a |an )?(?<x>.+?)(?=$|[.,]| (?:to|in|throughout)\\b)" },
+    { "Kind": "Defeat",  "Pattern": "\\b(?:defeat|slay|kill|destroy|confront) (?:the )?(?<x>.+?)(?=$|[.,!]| (?:for|to|and|immediately)\\b|\\.\\.\\.)" },
+    { "Kind": "Defeat",  "Pattern": "\\bobtain (?:a |the )?.+? from (?<x>.+?)(?=$|[.,])" },
+    { "Kind": "Enter",   "Pattern": "\\benter (?:the )?(?<x>.+?)(?=$|[.,]| (?:at|to|and)\\b)" },
+    { "Kind": "Travel",  "Pattern": "\\b(?:travel|return|go|sail|head) (?:back )?to (?<x>.+?)(?=$|[.,]| (?:and|to|in)\\b)" },
+    { "Kind": "Explore", "Pattern": "\\b(?:explore|find|search|locate|investigate|retrace|complete|clear) (?:for |the )?(?<x>.+?)(?=$|[.,]| (?:in|for|to|and)\\b)" },
+    { "Kind": "Wait",    "Pattern": "\\b(?:witness|watch|await|wait|survive|listen|follow)\\b" }
+  ]
+}

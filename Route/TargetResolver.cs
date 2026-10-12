@@ -46,6 +46,24 @@ public sealed class TargetResolver
         return name;
     }
 
+    private readonly Dictionary<string, string?> _areaIds = new(StringComparer.OrdinalIgnoreCase);   // name -> WorldAreas id
+
+    /// <summary>
+    /// The WorldAreas id of an area named in a quest text ("Kingsmarch" -> "G4_town"), preferring the act you are in
+    /// ("Arastas" exists twice); null when no area has that name (then it is a place, not an area).
+    /// </summary>
+    public string? AreaIdByName(GameController gc, string name, int act)
+    {
+        var key = act + ":" + name;
+        if (_areaIds.TryGetValue(key, out var id)) return id;
+        static string Bare(string s) => s.StartsWith("The ", StringComparison.OrdinalIgnoreCase) ? s[4..] : s;
+        var want = Bare(name.Trim());
+        var hits = gc.Files.WorldAreas.EntriesList.Where(a => a.Name != null && string.Equals(Bare(a.Name), want, StringComparison.OrdinalIgnoreCase)
+                                                             && a.Id != null && !a.Name.StartsWith("[DNT", StringComparison.Ordinal)).ToList();
+        id = (hits.FirstOrDefault(a => a.Act == act && a.Id.StartsWith("G", StringComparison.Ordinal)) ?? hits.FirstOrDefault(a => a.Id.StartsWith("G", StringComparison.Ordinal)) ?? hits.FirstOrDefault())?.Id;
+        return _areaIds[key] = id;
+    }
+
     /// <summary>
     /// The exit to <paramref name="destName"/> from Radar's places in this area (named after the destination, "The"
     /// optional), resolved into <paramref name="r"/>. For exits not loaded yet: the layout knows their tile on entry.
@@ -223,6 +241,25 @@ public sealed class TargetResolver
                     (it.Path?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true ||
                      it.GetComponent<Base>()?.Name?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true));
                 break;
+            case "npc":
+                // An NPC by the name the game shows ("Makoru", "The Hooded One"): the quest texts name them, not their
+                // metadata. Only one you can talk to now (an intro copy of the same NPC stands untargetable beside it).
+                r.Label = $"Speak to {arg}";
+                Entities(gc, r, EntityType.Npc, e => IsTargetable(e) && QuestGuide.NameMatches(e.RenderName, arg));
+                if (r.Goals.Count == 0) Remembered(r, s => s.Type == nameof(EntityType.Npc) && s.Targetable && QuestGuide.NameMatches(s.Name, arg));
+                break;
+            case "object":
+                // A thing to click by its name ("Fortified Door", "Verisium Anvil", "Hinekora Totem"): not monsters or items.
+                r.Label = arg;
+                Entities(gc, r, e => IsTargetable(e) && e.Type != EntityType.Npc && (QuestGuide.NameMatches(e.RenderName, arg)
+                    || e.RenderName?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true));
+                if (r.Goals.Count == 0) Remembered(r, s => s.Targetable && s.Type != nameof(EntityType.Npc) && s.Name?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true);
+                break;
+            case "monster":
+                // A monster by name ("Krutog, the Kin Tyrant"), alive: the route leads to it until the fight hides it.
+                r.Label = arg;
+                Entities(gc, r, EntityType.Monster, e => e.IsAlive && QuestGuide.NameMatches(e.RenderName, arg));
+                break;
             case "tile":
                 r.Label = arg;
                 Tiles(gc, areaRawName, arg, r);
@@ -237,7 +274,8 @@ public sealed class TargetResolver
                 var entityHit = false;
                 foreach (var t in book.RadarTargetsFor(areaRawName).OrderBy(t => string.Equals(t.TargetType, "Entity", StringComparison.OrdinalIgnoreCase) ? 0 : 1))
                 {
-                    if (!string.Equals(t.DisplayName, arg, StringComparison.OrdinalIgnoreCase)) continue;
+                    // "radar:Boss*": a pattern, for places named differently per area ("Boss - Siren", "Boss (+2 Passives)").
+                    if (!(arg.Contains('*') ? RouteBook.Like(t.DisplayName, arg) : string.Equals(t.DisplayName, arg, StringComparison.OrdinalIgnoreCase))) continue;
                     found = true;
                     var isEntity = string.Equals(t.TargetType, "Entity", StringComparison.OrdinalIgnoreCase);
                     if (!isEntity && entityHit) continue;
@@ -257,7 +295,7 @@ public sealed class TargetResolver
                 break;
             }
             default:
-                r.Why = $"unknown target kind '{kind}' in '{spec}' (checkpoint | waypoint | transition | tile: | radar: | entity:)";
+                r.Why = $"unknown target kind '{kind}' in '{spec}' (checkpoint | waypoint | transition | travel: | tile: | radar: | entity: | click: | item: | npc: | object: | monster:)";
                 return;
         }
         if (r.Goals.Count == 0 && r.Why == null)
