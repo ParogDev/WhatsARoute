@@ -790,9 +790,18 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         try { _map.Read(GameController, _areaRaw, now); }
         catch (Exception ex) { _map.Why = $"travel map: {ex.Message}"; }
         _chosenStop = null;
-        if (!_map.Open || (_resolved.TravelTo ?? _sailTo) is not { } dest) return;
-        foreach (var s in _map.Stops)
-            if (s.Unlocked && string.Equals(s.DestId, dest, StringComparison.OrdinalIgnoreCase)) { _chosenStop = s; break; }
+        if (!_map.Open) return;
+        if ((_resolved.TravelTo ?? _sailTo) is { } dest)
+        {
+            foreach (var s in _map.Stops)
+                if (s.Unlocked && string.Equals(s.DestId, dest, StringComparison.OrdinalIgnoreCase)) { _chosenStop = s; break; }
+            return;
+        }
+        // No travel or sail in the leading text ("Speak to Makoru to ...", a side quest leading): the plan's next area
+        // still gets its stop marked, its alternatives in route.json's order (Isle of Kin before Volcanic Warrens).
+        if (_questObj is not { Area.Length: > 0 } plan || RouteBook.LikeAny(_areaRaw, plan.Area)) return;
+        foreach (var area in plan.Area.Split('|'))
+            if (_map.Stops.FirstOrDefault(s => s.Unlocked && RouteBook.Like(s.DestId, area)) is { } stop) { _chosenStop = stop; return; }
     }
 
     /// <summary>
