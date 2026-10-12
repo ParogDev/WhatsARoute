@@ -130,6 +130,7 @@
       { "Target": "radar:Boss", "Label": "Open the Fortified Door: the Prisoner (fire the ballista when he kneels)" }
     ],
     "G4_1_1": [
+      { "Target": "radar:Boss (+2 Passives)", "Label": "Goblin town arena: kill the Blind Beast (+2 Passives)", "Note": "F8 #686 (2026-10-12): Radar row GoblinTownArena_01.tdt; flags name it the Blind Beast (G4_1_1BlindBeast*). Its monster path is not verified yet, so no UntilDead" },
       { "Target": "radar:Volcanic Warrens", "Label": "The Volcanic Warrens" }
     ],
     "G4_1_2": [
