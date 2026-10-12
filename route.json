@@ -77,8 +77,7 @@
       { "Target": "radar:Crowbell Arena (+2 Passive)|radar:Crowbell Start (+2 Passive)", "Label": "Crowbell (Book of Specialisation)", "DoneFlag": "G1_11CrowbellBossKilled", "Note": "2026-10-12, Radar's places; QuestFlag G1_11CrowbellBossKilled. Unverified live" }
     ],
     "G1_12": [
-      { "Target": "radar:Ritual", "Label": "Cleanse the Ritual Altars" },
-      { "Target": "radar:The King in the Mists (30 Spirit + Spirit Gem Level 4)", "Label": "The King in the Mists (+30 Spirit)" }
+      { "Target": "radar:The King in the Mists (30 Spirit + Spirit Gem Level 4)", "Label": "Cleanse the Ritual Altars on the way; the King in the Mists (+30 Spirit) guards the last", "Note": "2026-10-12 review: a 'radar:Ritual' step (3 altar rooms) ended at the first altar reached, so it is not a step; the altars lie on the way to the King's arena. Unverified live" }
     ],
     "G1_13_1": [
       { "Target": "radar:Una's Lute (+2 Passive)", "Label": "Una's Lute (Una's Book of Specialisation)", "DoneFlag": "UnaLuteQuestHaveLute", "Note": "UnaLute (Follow) takes over once picked up: 'Return it to her at Clearfell Encampment'" }
