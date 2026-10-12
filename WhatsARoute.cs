@@ -1606,8 +1606,10 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         var pr = _playerRender;
         if (pr == null) return;
 
-        // The view at draw time: fresh camera and feet, as of DelayMs ago (FreshView), else the HUD's per-frame copy.
-        _fresh.Sample(GameController, pr, Settings.World.DelayMs.Value, Settings.World.FreshView.Value, out var m, out var half, out var player);
+        // The view at draw time: fresh camera and feet (FreshView), else the HUD's per-frame copy, drawn between the last
+        // two game frames (smooth motion, ViewMotion) or as of DelayMs ago.
+        _fresh.Sample(GameController, pr, Settings.World.DelayMs.Value, Settings.World.FreshView.Value, Settings.World.SmoothMotion.Value,
+            out var m, out var half, out var player);
         var disp = ImGui.GetIO().DisplaySize;
         var largeMapEl = GameController.IngameState.IngameUi.Map.LargeMap;
         if (_largeMap == null || _largeMap.Address != largeMapEl.Address) _largeMap = largeMapEl.AsObject<SubMap>();
@@ -1815,6 +1817,16 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 SightingsScanUs = Math.Round(_scanUs, 1),
                 Goals = _resolved.Goals.Count,
                 PanelCheck = _rawPanelFlagsBroken ?? "raw",
+                Motion = new RouteMotionDto
+                {
+                    Smooth = Settings.World.SmoothMotion.Value,
+                    LagMs = Math.Round(Settings.World.SmoothMotion.Value ? _fresh.Motion.Lag * 1000 : _fresh.Fresh ? Settings.World.DelayMs.Value : 0, 1),
+                    GameFrameMs = Math.Round(_fresh.Motion.Interval * 1000, 2),
+                    HudFramesPerGameFrame = Math.Round(_fresh.Motion.FramesPerAdvance, 2),
+                    JitterRawPx = Math.Round(_fresh.Motion.JitterRaw, 3),
+                    JitterShownPx = Math.Round(_fresh.Motion.JitterShown, 3),
+                    JitterPointsPx = Math.Round(_fresh.Motion.JitterPoints, 3),
+                },
             },
         };
         foreach (var p in _frame.MapPath) { dto.MapPath.Add((int)p.X); dto.MapPath.Add((int)p.Y); }

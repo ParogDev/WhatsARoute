@@ -98,7 +98,13 @@ public sealed class WorldSettings
         "and draw them as of a few ms ago so the overlay lands on the game image")]
     public ToggleNode FreshView { get; set; } = new(true);
 
-    [Menu("Draw delay (ms)", "How far behind the fresh state the overlay is drawn: the game image's own latency (5 measured at 200 fps)")]
+    [Menu("Smooth motion", "The overlay runs on its own clock, so some HUD frames see the same game frame twice and others skip " +
+        "one: the path, edges and markers stutter while you or the camera move. On: everything is drawn with the view between " +
+        "the last two game frames, evenly spaced, at a constant lag of about 1.5 game frames (the state's timings.motion.lagMs). " +
+        "Replaces the draw delay below")]
+    public ToggleNode SmoothMotion { get; set; } = new(true);
+
+    [Menu("Draw delay (ms)", "With smooth motion off: how far behind the fresh state the overlay is drawn, the game image's own latency (5 measured at 200 fps)")]
     public RangeNode<int> DelayMs { get; set; } = new(5, 0, 30);
 
     [Menu("Mark the objective", "A gold marker around the thing to click (exit, Desert Map table, waypoint): footprint, brackets, name")]
