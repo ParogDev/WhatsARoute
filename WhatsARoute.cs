@@ -783,13 +783,14 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private bool _textOnly;                                             // the objective has no place: the card says what to do
 
     private readonly HashSet<string> _altAreas = new(StringComparer.OrdinalIgnoreCase);
+    private string? _sailTo;                  // a Sail objective's island: marked on Makoru's map while it is open
 
     private void ReadTravelMap(double now)
     {
         try { _map.Read(GameController, _areaRaw, now); }
         catch (Exception ex) { _map.Why = $"travel map: {ex.Message}"; }
         _chosenStop = null;
-        if (!_map.Open || _resolved.TravelTo is not { } dest) return;
+        if (!_map.Open || (_resolved.TravelTo ?? _sailTo) is not { } dest) return;
         foreach (var s in _map.Stops)
             if (s.Unlocked && string.Equals(s.DestId, dest, StringComparison.OrdinalIgnoreCase)) { _chosenStop = s; break; }
     }
@@ -1188,8 +1189,11 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         if (hasSteps && !actHere) return AutoUse.No;
         if (!hasSteps && !found && o.Kind is ObjectiveKind.Explore) return AutoUse.TextOnly;
         if (o.Kind == ObjectiveKind.Sail && _questObj is { } plan && !RouteBook.LikeAny(_areaRaw, plan.Area))
-            // Which island: the plan's next one (route.json's island order), named on the card and the marker.
-            _resolved.Label = $"Speak to Makoru: set sail for {_resolver.AreaName(GameController, RouteBook.FirstOf(plan.Area))}";
+        {
+            // Which island: the plan's next one (route.json's island order), named on the card and marked on Makoru's map.
+            _sailTo = RouteBook.FirstOf(plan.Area);
+            _resolved.Label = $"Speak to Makoru: set sail for {_resolver.AreaName(GameController, _sailTo)}";
+        }
         else if (_resolved.TravelTo == null) _resolved.Label = Sentence(o);   // a travel keeps "Exit to X" / "Travel to X": the way, not the deed
         else if (o.AreaName != null) _resolved.Label = $"{Sentence(o)}: {_resolved.Label}";
         return AutoUse.Spec;
@@ -1203,6 +1207,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         var q = route ? _questObj : null;
         _useItem = false;
         _textOnly = false;
+        _sailTo = null;
         if (route)
             foreach (var u in _book.Route.Use)
             {
@@ -1761,7 +1766,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         if (_capture is { } cap) dto.HeadsUp = $"{cap.Intent}{(cap.Note != null ? ": " + cap.Note : "")} ({_clock.Elapsed.TotalSeconds - cap.StartedAt:0} s)";
         dto.TravelTo = _resolved.TravelTo;
         dto.TravelMapOpen = _map.Open;
-        if (_map.Open) dto.Notes.Add($"map view: {_map.Mode} ('{_map.Title}')");
+        if (_map.Open) dto.Notes.Add($"map view: {_map.Mode}{(_map.Port ? " (port)" : "")} ('{_map.Title}')");
         if (_map.Why != null) dto.Notes.Add(_map.Why);
         dto.Notes.Add("view: " + _fresh.Status);
         foreach (var s in _map.Stops)
