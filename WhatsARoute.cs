@@ -760,10 +760,11 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             if (_questTexts.TryGetValue(qo.Quest, out var tx)) { _autoHere.Add((qo.Quest, _book.Guide.Read(tx))); _autoPlan.Add(_autoHere[0]); }
             return;
         }
-        // Acting here: side quests first (a town talk on the way), then the story. The plan when nothing is here: the story first.
+        // Acting here: the nearest leads, the story first on a tie (one NPC for both: "hire her ship" over "travel to
+        // Kedge Bay"). The plan when nothing is here: the story first.
         var side = Followed(_book.Route.Follow);
         var main = Followed(_book.Route.Main);
-        _autoHere.AddRange(side); _autoHere.AddRange(main.Where(m => side.All(s => s.Quest != m.Quest)));
+        _autoHere.AddRange(main); _autoHere.AddRange(side.Where(s => main.All(m => m.Quest != s.Quest)));
         _autoPlan.AddRange(main); _autoPlan.AddRange(side.Where(s => main.All(m => m.Quest != s.Quest)));
     }
 
