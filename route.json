@@ -148,7 +148,7 @@
       { "Target": "radar:Journey's end", "Label": "Journey's End" }
     ],
     "G4_2_2": [
-      { "Target": "radar:Boss - Captain Hartlin", "Label": "Captain Hartlin: the Verisium Ingots (to Dannig)" }
+      { "Target": "radar:Boss - Captain Hartlin", "Label": "Captain Hartlin: the Verisium Ingots (to Dannig)", "DoneFlag": "Act4CaptainHartlinKilled", "Note": "Verified live 2026-10-12: Act4CaptainHartlinKilled is set once he is dead; without it the step held the route in Journey's End after Omniphobia" }
     ],
     "G4_8b": [
       { "Target": "radar:Boss", "Label": "Torvian, Hand of the Saviour" }
