@@ -150,7 +150,7 @@ public sealed partial class WhatsARoute
             {
                 y += ComposeSectionGap;
                 var size = f * 0.9f;
-                dl.AddText(font, size, new Vector2(x0, y + (chipH - size) * 0.5f), ToastFamily.Col(ToastFamily.Text, 0.9f), v.Lead);
+                dl.AddText(font, size, new Vector2(x0, ToastFamily.TextTop(y + chipH * 0.5f, size)), ToastFamily.Col(ToastFamily.Text, 0.9f), v.Lead);
                 var px = x0 + ToastFamily.Width(font, size, v.Lead) + 12f;
                 if (ComposePill(dl, font, f, ref px, y, "##f8vworks", ComposeWorksNow, ToastFamily.PillKind.Secondary, guard, ToastFamily.Ok, null, false, min.X, hoverBelow, hoverAbove,
                         "Sends: this fix works. The press is closed as confirmed by you."))
@@ -193,7 +193,7 @@ public sealed partial class WhatsARoute
 
             // ABOUT: the scope (one of them), with the marker pulse and the panel frame on hover.
             y += ComposeSectionGap;
-            ToastFamily.Tracked(dl, font, small, new Vector2(x0, y + (chipH - small) * 0.5f), ToastFamily.Col(ToastFamily.Muted, 1f), ComposeAbout, ToastFamily.MsgTrack);
+            ToastFamily.Tracked(dl, font, small, new Vector2(x0, ToastFamily.TextTop(y + chipH * 0.5f, small)), ToastFamily.Col(ToastFamily.Muted, 1f), ComposeAbout, ToastFamily.MsgTrack);
             x = x0 + aboutW;
             c.HoverScope = null;
             for (var i = 0; i < c.ScopeChips.Count; i++)

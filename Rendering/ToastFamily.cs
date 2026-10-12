@@ -138,14 +138,26 @@ public static class ToastFamily
 
     public enum ChipState { Off, On, Warn }
 
-    /// <summary>A chip's width: the label at 0.9 f, 10 px padding each side, plus the glyph slot (kept whether on or off, so a toggle never reflows the row).</summary>
-    public static float ChipWidth(ImFontPtr font, float f, string label) => Width(font, f * 0.9f, label) + ChipPadX * 2 + ChipGlyphW;
+    /// <summary>
+    /// A chip's width: the label at 0.9 f, 10 px padding each side, plus a 20 px slot the on-state glyph (10 px + 4 gap) and
+    /// the digit badge share. Constant whether on or off, so a toggle never reflows the row: the label is centred when off and
+    /// the glyph + label group is centred when on (the text moves 7 px, nothing else does).
+    /// </summary>
+    public static float ChipWidth(ImFontPtr font, float f, string label) => Width(font, f * 0.9f, label) + ChipPadX * 2 + ChipSlotW;
+    private const float ChipSlotW = 20f, ChipGlyphGap = 4f;
+
+    /// <summary>
+    /// Where a line of text at <paramref name="size"/> sits so its x-height reads centred on <paramref name="cy"/>: the font
+    /// box's centre plus a small nudge (the box has more room under the baseline than caps and ascenders use above it).
+    /// </summary>
+    public static float TextTop(float cy, float size) => MathF.Round(cy - size * 0.5f + size * 0.06f);
 
     /// <summary>
     /// A chip (2.2): off = Line 55% on a Line hairline, text at 85%; hover = accent 18% on an accent 80% hairline; on =
-    /// accent 85% with ink faux-bold text and a check; warn (a preselected suggestion) = warn 80% with a "!" disc. The
-    /// digit badge (a 10 px muted ring at the top-right) says which key toggles it while the overlay has keyboard focus.
-    /// Visuals only: the caller owns the InvisibleButton and the click.
+    /// accent 85% with ink faux-bold text and a check; warn (a preselected suggestion) = warn 80% with a "!" disc. The label
+    /// (or the glyph + label group) is optically centred in every state. The digit badge (which key toggles it, shown only
+    /// while the overlay has keyboard focus and no field is active) is a small muted disc inside the chip's right padding,
+    /// vertically centred, never on the outline. Visuals only: the caller owns the InvisibleButton and the click.
     /// </summary>
     public static void Chip(ImDrawListPtr dl, ImFontPtr font, float f, Vector2 min, float w, float h, string label, ChipState state, bool hover, string? digit, float alpha)
     {
@@ -153,16 +165,20 @@ public static class ToastFamily
         var r = h * 0.5f;
         var size = f * 0.9f;
         var cy = min.Y + r;
+        var ty = TextTop(cy, size);
+        var tw = Width(font, size, label);
         var on = state != ChipState.Off;
         var tone = state == ChipState.Warn ? Warn : Accent;
         if (on)
         {
             dl.AddRectFilled(min, max, Col(tone, (state == ChipState.Warn ? 0.80f : 0.85f) * (hover ? 1.08f : 1f) * alpha), r);
             var ink = Col(InkOnAccent, alpha);
-            var gc = new Vector2(min.X + ChipPadX + 5f, cy);
+            const float glyphW = 10f;
+            var gx = MathF.Round(min.X + (w - (glyphW + ChipGlyphGap + tw)) * 0.5f);
+            var gc = new Vector2(gx + glyphW * 0.5f, cy);
             if (state == ChipState.Warn) Bang(dl, gc, Col(InkOnAccent, 0.9f * alpha), Col(tone, alpha));
             else Check(dl, gc, ink);
-            var tp = new Vector2(min.X + ChipPadX + ChipGlyphW, cy - size * 0.5f);
+            var tp = new Vector2(gx + glyphW + ChipGlyphGap, ty);
             dl.AddText(font, size, tp, ink, label);
             dl.AddText(font, size, tp + new Vector2(0.6f, 0f), ink, label);
         }
@@ -178,15 +194,16 @@ public static class ToastFamily
                 dl.AddRectFilled(min, max, Col(Line, 0.55f * alpha), r);
                 dl.AddRect(min, max, Col(Line, alpha), r);
             }
-            dl.AddText(font, size, new Vector2(min.X + ChipPadX + ChipGlyphW * 0.5f, cy - size * 0.5f), Col(Text, (hover ? 1f : 0.85f) * alpha), label);
+            dl.AddText(font, size, new Vector2(MathF.Round(min.X + (w - tw) * 0.5f), ty), Col(Text, (hover ? 1f : 0.85f) * alpha), label);
         }
         if (digit != null)
         {
-            var bc = new Vector2(max.X - 3f, min.Y + 2f);
-            dl.AddCircleFilled(bc, 5.5f, Col(Ink, 0.9f * alpha), 12);
-            dl.AddCircle(bc, 5f, Col(Muted, 0.9f * alpha), 12, 1f);
-            var ds = f * 0.55f;
-            dl.AddText(font, ds, new Vector2(bc.X - Width(font, ds, digit) * 0.5f, bc.Y - ds * 0.5f), Col(Muted, alpha), digit);
+            // Inside the right padding (the slot leaves 13 px free there in either state), on the chip's own fill.
+            var bc = new Vector2(max.X - 8.5f, cy);
+            var ds = f * 0.6f;
+            dl.AddCircleFilled(bc, 5.5f, Col(on ? InkOnAccent : Ink, (on ? 0.35f : 0.9f) * alpha), 14);
+            dl.AddCircle(bc, 5.5f, Col(on ? InkOnAccent : Muted, (on ? 0.5f : 0.8f) * alpha), 14, 1f);
+            dl.AddText(font, ds, new Vector2(MathF.Round(bc.X - Width(font, ds, digit) * 0.5f), TextTop(cy, ds)), Col(on ? InkOnAccent : Text, (on ? 0.9f : 0.95f) * alpha), digit);
         }
     }
 
@@ -207,6 +224,7 @@ public static class ToastFamily
         var max = min + new Vector2(w, h);
         var size = f * 0.85f;
         var cy = min.Y + h * 0.5f;
+        var ty = TextTop(cy, size);
         var tx = min.X + 10f;
         if (kind == PillKind.Primary)
         {
@@ -218,13 +236,13 @@ public static class ToastFamily
                 dl.AddLine(new Vector2(tx + 5f, cy), new Vector2(tx + 1f, cy + 4f), ink, 1.8f);
             }
             else Check(dl, new Vector2(tx + 4f, cy), ink);
-            var tp = new Vector2(tx + 12f, cy - size * 0.5f);
+            var tp = new Vector2(tx + 12f, ty);
             dl.AddText(font, size, tp, ink, label);
             dl.AddText(font, size, tp + new Vector2(0.6f, 0f), ink, label);
             if (hint != null)
             {
                 var hs = f * 0.75f;
-                dl.AddText(font, hs, new Vector2(tp.X + Width(font, size, label) + 10f, cy - hs * 0.5f), Col(InkOnAccent, 0.7f * alpha), hint);
+                dl.AddText(font, hs, new Vector2(tp.X + Width(font, size, label) + 10f, TextTop(cy, hs)), Col(InkOnAccent, 0.7f * alpha), hint);
             }
         }
         else
@@ -240,11 +258,11 @@ public static class ToastFamily
                 dl.AddRectFilled(min, max, Col(Line, 0.5f * alpha), 0f);
                 dl.AddRect(min, max, Col(Line, alpha), 0f);
             }
-            dl.AddText(font, size, new Vector2(tx, cy - size * 0.5f), Col(Text, (hover ? 1f : 0.85f) * alpha), label);
+            dl.AddText(font, size, new Vector2(tx, ty), Col(Text, (hover ? 1f : 0.85f) * alpha), label);
             if (hint != null)
             {
                 var hs = f * 0.75f;
-                dl.AddText(font, hs, new Vector2(tx + Width(font, size, label) + 10f, cy - hs * 0.5f), Col(Muted, alpha), hint);
+                dl.AddText(font, hs, new Vector2(tx + Width(font, size, label) + 10f, TextTop(cy, hs)), Col(Muted, alpha), hint);
             }
         }
     }
