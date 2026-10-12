@@ -79,7 +79,7 @@ public sealed class QuestGuide
 
     public void Load(string pluginDir)
     {
-        _cache.Clear();
+        lock (_cache) _cache.Clear();
         Why = null;
         var path = Path.Combine(pluginDir, "objective-types.json");
         try
@@ -99,7 +99,12 @@ public sealed class QuestGuide
     /// <summary>The objective a quest state's text asks for (Unknown, with the whole text as the sentence, when no rule matches).</summary>
     public QuestObjectiveText Read(string? text)
     {
-        text = (text ?? "").Trim();
+        // Tick and GetState (the PluginBridge caller's thread) both read.
+        lock (_cache) return ReadLocked((text ?? "").Trim());
+    }
+
+    private QuestObjectiveText ReadLocked(string text)
+    {
         if (_cache.TryGetValue(text, out var known)) return known;
         var parts = Sentences.Split(text);
         QuestObjectiveText? found = null;

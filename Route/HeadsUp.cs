@@ -59,7 +59,7 @@ public sealed class HeadsUpCapture
     public double? FirstChangeAt;
     public double LastChangeAt;
     public Dictionary<string, int> Quests = new();
-    public HashSet<string> Flags = new();
+    public HashSet<ExileCore2.Shared.Enums.QuestFlag> Flags = new();
     public HashSet<string> Items = new();
     public Dictionary<string, NearThing> Near = new();
     public readonly List<string> Events = new();

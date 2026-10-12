@@ -251,9 +251,10 @@ public sealed class TargetResolver
             case "object":
                 // A thing to click by its name ("Fortified Door", "Verisium Anvil", "Hinekora Totem"): not monsters or items.
                 r.Label = arg;
-                Entities(gc, r, e => IsTargetable(e) && e.Type != EntityType.Npc && (QuestGuide.NameMatches(e.RenderName, arg)
-                    || e.RenderName?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true));
-                if (r.Goals.Count == 0) Remembered(r, s => s.Targetable && s.Type != nameof(EntityType.Npc) && s.Name?.Contains(arg, StringComparison.OrdinalIgnoreCase) == true);
+                // The name itself, or a longer one holding it as words ("Verisium Anvil" in "Ancient Verisium Anvil"): a
+                // plain substring made "Ange" match "Strange ...".
+                Entities(gc, r, e => IsTargetable(e) && e.Type != EntityType.Npc && NamedLike(e.RenderName, arg));
+                if (r.Goals.Count == 0) Remembered(r, s => s.Targetable && s.Type != nameof(EntityType.Npc) && NamedLike(s.Name, arg));
                 break;
             case "monster":
                 // A monster by name ("Krutog, the Kin Tyrant"), alive: the route leads to it until the fight hides it.
@@ -324,6 +325,14 @@ public sealed class TargetResolver
         r.FromEntities = true;
         r.FromMemory = exit.FromMemory;
         r.Label = exit.Label;
+    }
+
+    private static bool NamedLike(string? name, string want)
+    {
+        if (QuestGuide.NameMatches(name, want)) return true;
+        if (name == null || want.Length == 0) return false;
+        var i = name.IndexOf(want, StringComparison.OrdinalIgnoreCase);   // as whole words, no allocation
+        return i >= 0 && (i == 0 || !char.IsLetterOrDigit(name[i - 1])) && (i + want.Length == name.Length || !char.IsLetterOrDigit(name[i + want.Length]));
     }
 
     private static (int x, int y) CellOf(Entity e) =>

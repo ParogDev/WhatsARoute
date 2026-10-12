@@ -528,7 +528,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     // first, I must tell you first"). Quest flags, NPC dialogs and quest items in the inventory go out as trace events
     // next to the quest states, and into a running heads-up capture.
 
-    private HashSet<string>? _flagsSet;          // quest flags set at the last read (null until the first)
+    private HashSet<QuestFlag>? _flagsSet;          // quest flags set at the last read (null until the first)
     private double _nextAllFlags, _nextWorld;
     private string? _dialogNpc;
     private HashSet<string>? _questItemsHeld;    // "name|path" of quest items carried at the last look
@@ -542,8 +542,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             {
                 if (_flagsSet != null)
                 {
-                    var added = set.Where(f => !_flagsSet.Contains(f)).ToList();
-                    var cleared = _flagsSet.Where(f => !set.Contains(f)).ToList();
+                    var added = set.Where(f => !_flagsSet.Contains(f)).Select(f => f.ToString()).ToList();
+                    var cleared = _flagsSet.Where(f => !set.Contains(f)).Select(f => f.ToString()).ToList();
                     if (added.Count > 0) { Trace("flag", string.Join(", ", added)); _capture?.Changed(now); }
                     if (cleared.Count > 0) Trace("flag-cleared", string.Join(", ", cleared));
                 }
@@ -575,15 +575,15 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private static string ShowItem(string nameBarPath) => nameBarPath.Replace("|", " (") + ")";
 
     /// <summary>Every quest flag set now, by name (ServerData.QuestFlags: ~4700 flags, ~1.4 ms cold, cached by the HUD after).</summary>
-    private HashSet<string>? ReadFlagsSet()
+    private HashSet<QuestFlag>? ReadFlagsSet()
     {
         try
         {
             var all = GameController.IngameState.Data.ServerData?.QuestFlags;
             if (all == null) return null;
-            var set = new HashSet<string>(StringComparer.Ordinal);
+            var set = new HashSet<QuestFlag>();   // enum values: names only for the few that change
             foreach (var (flag, on) in all)
-                if (on) set.Add(flag.ToString());
+                if (on) set.Add(flag);
             return set;
         }
         catch (Exception ex) { _why = $"ServerData.QuestFlags: {ex.Message}"; return null; }
@@ -624,7 +624,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         _capture = new HeadsUpCapture
         {
             Intent = intent, Note = _headsUpNote.Trim() is { Length: > 0 } n ? n : null, StartArea = _areaRaw, StartedAt = now,
-            Quests = new Dictionary<string, int>(_quests), Flags = ReadFlagsSet() ?? new HashSet<string>(),
+            Quests = new Dictionary<string, int>(_quests), Flags = ReadFlagsSet() ?? new HashSet<QuestFlag>(),
             Items = _carriedQuest.Select(q => q.name + "|" + q.path).ToHashSet(), Near = NearThings(cell),
             ObjectiveBefore = _resolved.Label,
         };
@@ -655,8 +655,8 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         foreach (var id in c.Quests.Keys.Where(id => !_quests.ContainsKey(id))) dto.QuestChanges.Add($"{id}: done");
         if (ReadFlagsSet() is { } flags)
         {
-            dto.FlagsSet = flags.Where(f => !c.Flags.Contains(f)).ToList();
-            dto.FlagsCleared = c.Flags.Where(f => !flags.Contains(f)).ToList();
+            dto.FlagsSet = flags.Where(f => !c.Flags.Contains(f)).Select(f => f.ToString()).ToList();
+            dto.FlagsCleared = c.Flags.Where(f => !flags.Contains(f)).Select(f => f.ToString()).ToList();
         }
         _carriedAt = -1;
         RefreshCarried();
@@ -744,7 +744,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             if (q.Optional && !Settings.Route.IncludeOptional) continue;
             if (!_quests.TryGetValue(q.Quest, out var st)) continue;
             if (q.States is { Length: > 0 } && Array.IndexOf(q.States, st) < 0) continue;
-            if (q.UnlessFlag is { Length: > 0 } uf && (_flagsSet ??= ReadFlagsSet())?.Contains(uf) == true) continue;
+            if (q.UnlessFlag is { Length: > 0 } uf && (_flagsSet ??= ReadFlagsSet())?.Contains(Enum.TryParse<QuestFlag>(uf, out var ufv) ? ufv : (QuestFlag)(-1)) == true) continue;
             if (_questObj == null) _questObj = q;
             else _altAreas.Add(RouteBook.FirstOf(q.Area));   // other open objectives: the only other choices worth a ring on the map
             // An open objective for the area you are in beats the planned order (Act 4: you sailed to Shrike before
@@ -1238,15 +1238,23 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             // Several can act here (Makoru for the story, Farrow for a side quest, both in town): the nearest leads, so
             // the player standing at the ship isn't sent across town first (2026-10-12). An item to use is nearest of all.
             var bestD = int.MaxValue;
+            (string, QuestObjectiveText)? lastTried = null;
             foreach (var c in _autoHere)
             {
-                var tried = AutoObjective(c.Read, pending, out _, out var acts);
+                // Only kinds that can act here are tried (each try is a resolve, twice a second).
+                if (c.Read.Kind is not (ObjectiveKind.Talk or ObjectiveKind.PickUp or ObjectiveKind.Use or ObjectiveKind.Click
+                    or ObjectiveKind.Defeat or ObjectiveKind.Sail or ObjectiveKind.Travel)) continue;
+                var tried = AutoObjective(c.Read, pending, out var triedSpec, out var acts);
+                lastTried = c;
                 if (tried == AutoUse.No || !acts) continue;
                 var d = tried == AutoUse.UseItem ? 0 : int.MaxValue - 1;
                 foreach (var g in _resolved.Goals) d = Math.Min(d, Math.Max(Math.Abs(g.x - cell.x), Math.Abs(g.y - cell.y)));
-                if (d < bestD) { bestD = d; _auto = c; }
+                // Something loaded beats a remembered place or a tile (NpcPlaces): those can be nearer only on paper.
+                if (tried != AutoUse.UseItem && (_resolved.FromMemory || !_resolved.FromEntities)) d += 100_000;
+                if (d < bestD) { bestD = d; _auto = c; use = tried; autoSpec = triedSpec; }
             }
-            if (_auto is { } near) use = AutoObjective(near.Read, pending, out autoSpec, out _);   // resolve the winner again: _resolved holds the last one tried
+            // _resolved holds the last one tried: resolve the winner again unless it was the last.
+            if (_auto is { } near && !Equals(lastTried, near)) use = AutoObjective(near.Read, pending, out autoSpec, out _);
             if (_auto == null && (q == null || q.Target == "quest"))
                 foreach (var c in _autoPlan)
                     if ((use = AutoObjective(c.Read, pending, out autoSpec, out _)) != AutoUse.No) { _auto = c; break; }
