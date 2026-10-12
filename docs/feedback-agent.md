@@ -169,7 +169,8 @@ Answer in one line: what the route now does at that point.
 
 - Never send game input. Never edit HUD config files while the HUD runs.
 - End your agent route (`route_agent action=end`) before your final message unless the player should keep following
-  it; once your session is gone the plugin ends it anyway (`owner-gone`).
+  it. A route you leave keeps leading after your final reply (the press going `Done` does not end it); its `TtlSec` ends
+  it, or `owner-gone` once the bridge's work list shows your session's own item final for 10 s.
 - No restarts for a route fix: the dispatcher's reload is enough. A plugin change that needs the bridge or the MCP server is not a
   handler's job: say so in your final message and stop.
 - Fire and forget: your turn ending is the end. The dispatcher reads your last message, shows it as the press's answer (the `DONE` toast) and stops

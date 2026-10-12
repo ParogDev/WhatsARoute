@@ -124,7 +124,8 @@ public sealed class AiBridgeLink
     private Delegate? _deadPublish;      // a bridge load that answered bridge_reloaded: PluginBridge may still hand it out
     private double _nextLookup, _nextSubscribe;
     private readonly ConcurrentQueue<FeedbackReplyDto> _inbox = new();
-    private readonly Queue<(string kind, string json)> _unsent = new();
+    private readonly List<(string kind, string json)> _unsent = new();
+    private const string FeedbackKind = "feedback";
     private static readonly JsonSerializerSettings Json = new() { NullValueHandling = NullValueHandling.Ignore };
 
     /// <summary>Why the bridge can't be used right now (null when it can).</summary>
@@ -175,11 +176,11 @@ public sealed class AiBridgeLink
         }
         while (_unsent.Count > 0 && _publish != null)
         {
-            var (kind, json) = _unsent.Peek();
+            var (kind, json) = _unsent[0];
             var r = Send(kind, json);
             if (r is not { Ok: true }) break;
-            _unsent.Dequeue();
-            Flushed.Add(r.Seq);
+            _unsent.RemoveAt(0);
+            if (kind is FeedbackKind or CaptureKind) Flushed.Add(r.Seq);   // only the player's sends get the "Sent to Claude" toast
         }
     }
 
@@ -194,8 +195,13 @@ public sealed class AiBridgeLink
         if (r is { Ok: true }) return r;
         if (keep)
         {
-            if (_unsent.Count >= UnsentMax) _unsent.Dequeue();
-            _unsent.Enqueue((kind, json));
+            if (_unsent.Count >= UnsentMax)
+            {
+                // Full: the oldest agent route progress event goes first, the player's presses only when nothing else waits.
+                var i = _unsent.FindIndex(u => u.kind == AgentProgressKind);
+                _unsent.RemoveAt(i >= 0 ? i : 0);
+            }
+            _unsent.Add((kind, json));
         }
         return r;
     }

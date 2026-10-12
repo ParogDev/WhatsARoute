@@ -76,6 +76,12 @@ public sealed partial class WhatsARoute
             _agentHlOwner = null;
         }
         _agentNearSince = -1; _agentArrived = false; _clickEntity = null; _agentAtStep = false;
+        _agentWhy = null;
+        // The objective changes hands (agent step <-> agent step <-> normal route): the old goal's flow field must not
+        // finish the new objective while the new field builds (Replan's "standing on the goal" would mark a normal step
+        // reached, or an agent Near step done, at the old goal).
+        _fieldCts.Cancel();
+        _field = null; _goalSig = ""; _frame.Ready = false;
         _nextResolve = 0;
         // A step with nothing to walk to and a highlight (open a panel, click a thing in it): shown as it becomes current.
         if (_agent.Leads && _agent.Current is { Target.Length: 0, Highlight: not null } s && AgentArea(s) is null)
@@ -190,13 +196,16 @@ public sealed partial class WhatsARoute
     }
 
     /// <summary>
-    /// Owner gone: the bridge's work list shows the owner's item final (its F8 press f8:&lt;Ref&gt;, else its session's Task
-    /// item) for 10 s. An owner with no item at all can't be judged and is never ended here (the TTL still ends its route).
+    /// Owner gone: the bridge's work list shows the owner session's own item (Key = the session) final for 10 s. The F8
+    /// press it answers (f8:&lt;Ref&gt;) is not read: a handler's final reply marks the press Done while the route it leaves
+    /// for the player should still lead (docs/feedback-agent.md). An owner with no session item can't be judged and is never
+    /// ended here (the TTL still ends its route).
     /// </summary>
     private void AgentOwners(double now)
     {
         var items = WorkItems(now, out var why);
         if (items == null) { if (_agent.Route != null) _agentWhy = "owner check: " + why; return; }
+        if (_agentWhy?.StartsWith("owner check: ") == true) _agentWhy = null;
         var routes = new List<AgentRouteDto>();
         if (_agent.Route != null) routes.Add(_agent.Route);
         if (_agent.Parked != null) routes.Add(_agent.Parked);
@@ -204,8 +213,7 @@ public sealed partial class WhatsARoute
         foreach (var r in routes)
         {
             if (r.Owner is not { Length: > 0 } owner) continue;
-            var it = r.Ref is { } rf ? items.FirstOrDefault(i => i.Key == $"f8:{rf}") : null;
-            it ??= items.FirstOrDefault(i => i.Key == owner);
+            var it = items.FirstOrDefault(i => i.Key == owner);
             if (it?.Final != true) { _ownerGoneSince.Remove(owner); continue; }
             if (!_ownerGoneSince.TryGetValue(owner, out var since)) { _ownerGoneSince[owner] = now; continue; }
             if (now - since < OwnerGoneSec) continue;
@@ -260,7 +268,12 @@ public sealed partial class WhatsARoute
         if (_agentFlags == null || now >= _nextAgentFlags)
         {
             _nextAgentFlags = now + 2;
-            try { _agentFlags = GameController.IngameState.Data.ServerData?.QuestFlags; } catch { _agentFlags = null; }
+            try
+            {
+                _agentFlags = GameController.IngameState.Data.ServerData?.QuestFlags;
+                if (_agentFlags == null) _agentWhy = "flag: IngameState.Data.ServerData.QuestFlags is null";
+            }
+            catch (Exception ex) { _agentFlags = null; _agentWhy = $"flag: ServerData.QuestFlags: {ex.Message}"; }
         }
         if (!Enum.TryParse<QuestFlag>(name, out var f)) { _agentWhy = $"Done.Value '{name}' is not a QuestFlag name"; return false; }
         return _agentFlags != null && _agentFlags.TryGetValue(f, out var v) && v;
@@ -414,24 +427,34 @@ public sealed partial class WhatsARoute
         ImGui.SetNextWindowSize(size, ImGuiCond.Always);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
         ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
-        const ImGuiWindowFlags flags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoSavedSettings
+        var flags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoSavedSettings
             | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoFocusOnAppearing | ImGuiWindowFlags.NoBringToFrontOnFocus | ImGuiWindowFlags.NoNav
             | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse | ImGuiWindowFlags.NoBackground;
+        // The window takes the mouse only over a control: elsewhere on the card clicks go through to the game, as before.
+        var m = ImGui.GetIO().MousePos;
+        if (!(Over(m, s.BylineMin, s.BylineMax) || Over(m, s.DidItMin, s.DidItMax) || Over(m, s.BackMin, s.BackMax) || Over(m, s.ParkedMin, s.ParkedMax)))
+            flags |= ImGuiWindowFlags.NoInputs;
+        // One click per 0.5 s: the next Manual step's Did it lands on the same rect, a double-click must not do two steps.
+        var guard = now - _agentClickAt < 0.5;
         var below = pos.Y + size.Y;
         if (ImGui.Begin("###route_agent_pills", flags))
         {
             if (s.BylineMax.X > s.BylineMin.X) AgentControl("##agent_byline", s.BylineMin, s.BylineMax, out s.HoverByline);   // hover only: WHY
             if (s.HoverByline && v.Reason != null) _agentHover.Draw(WhyTitle, v.Reason, v.HoverFoot, v.Hue, pos.X, below, pos.Y);
-            if (s.DidItMax.X > s.DidItMin.X && AgentControl("##agent_didit", s.DidItMin, s.DidItMax, out s.HoverDidIt)) AgentDidIt();
+            if (s.DidItMax.X > s.DidItMin.X && AgentControl("##agent_didit", s.DidItMin, s.DidItMax, out s.HoverDidIt) && !guard) { _agentClickAt = now; AgentDidIt(); }
             if (s.HoverDidIt) _agentHover.Draw(null, "You did this step: the agent route moves on.", null, ToastFamily.Accent, pos.X, below, pos.Y);
-            if (s.BackMax.X > s.BackMin.X && AgentControl("##agent_back", s.BackMin, s.BackMax, out s.HoverBack)) AgentBackToRoute();
+            if (s.BackMax.X > s.BackMin.X && AgentControl("##agent_back", s.BackMin, s.BackMax, out s.HoverBack) && !guard) { _agentClickAt = now; AgentBackToRoute(); }
             if (s.HoverBack) _agentHover.Draw(null, v.BackToRouteTooltip, null, ToastFamily.Neutral, pos.X, below, pos.Y);
-            if (s.ParkedMax.X > s.ParkedMin.X && AgentControl("##agent_parked", s.ParkedMin, s.ParkedMax, out s.HoverParked)) AgentResumeParked();
+            if (s.ParkedMax.X > s.ParkedMin.X && AgentControl("##agent_parked", s.ParkedMin, s.ParkedMax, out s.HoverParked) && !guard) { _agentClickAt = now; AgentResumeParked(); }
             if (s.HoverParked) _agentHover.Draw(null, "Follow " + v.ParkedText + " again, from the step it was on.", null, v.ParkedHue, pos.X, below, pos.Y);
         }
         ImGui.End();
         ImGui.PopStyleVar(2);
     }
+
+    private double _agentClickAt = double.NegativeInfinity;
+
+    private static bool Over(Vector2 p, Vector2 min, Vector2 max) => max.X > min.X && p.X >= min.X && p.Y >= min.Y && p.X < max.X && p.Y < max.Y;
 
     /// <summary>An InvisibleButton over a rect the card reported; returns the click, hands back the hover.</summary>
     private static bool AgentControl(string id, Vector2 min, Vector2 max, out bool hovered)

@@ -184,7 +184,7 @@ public sealed class AgentRoute
     public AgentRouteStepDto? Current => Route != null && Index < Route.Steps.Count ? Route.Steps[Index] : null;
     public int Count => Route?.Steps.Count ?? 0;
     /// <summary>The step changes (or the route does): the plugin resets its per-step watch on a new key.</summary>
-    public string StepKey => Route == null ? "" : $"{Route.Id}#{Index}{(Started ? "" : "w")}{(Holding ? "h" : "")}";
+    public string StepKey => Route == null ? "" : $"{Route.Id}#{Index}{(Started ? "" : "w")}{(Paused ? "p" : "")}{(Holding ? "h" : "")}";
 
     private readonly List<AgentRouteProgressDto> _out = new();
     /// <summary>Lines to toast (ended with Text, owner gone).</summary>
@@ -224,6 +224,7 @@ public sealed class AgentRoute
     {
         if (cmd.Steps.Count is < 1 or > MaxSteps) { Emit(cmd, "refused", 0, why: $"bad_steps: {cmd.Steps.Count} steps (1-{MaxSteps})"); return; }
         Clip(cmd);
+        if (BadStep(cmd) is { } bad) { Emit(cmd, "refused", 0, why: bad); return; }
         var ttl = Math.Clamp(cmd.TtlSec <= 0 ? DefaultTtl : cmd.TtlSec, MinTtl, MaxTtl);
         // The same owner's parked or queued route is superseded by this one.
         if (Parked is { } p && p.Owner == cmd.Owner) { Emit(p, "replaced", ParkedIndex); Parked = null; }
@@ -303,6 +304,8 @@ public sealed class AgentRoute
     {
         if (Route == null) return;
         if (Holding) { Route = null; Holding = false; Started = false; return; }
+        // One parked route: an older one (another owner's, parked before) is dropped and its owner told.
+        if (Parked != null) Emit(Parked, "replaced", ParkedIndex, why: $"another parked route ({Route.Who}'s) took its place");
         Emit(Route, "left", Index);
         Parked = Route; ParkedIndex = Index; ParkedUntil = now + ParkSec; _parkedTtlLeft = Math.Max(MinTtl, ExpiresAt - now);
         Mark("left", now, Route);
@@ -374,6 +377,23 @@ public sealed class AgentRoute
             Position = position, Why = why,
         });
         return true;
+    }
+
+    /// <summary>A step that could never be done (an unknown Done.Kind, a rule without its Value or place): why, else null.</summary>
+    private static string? BadStep(AgentRouteDto r)
+    {
+        for (var i = 0; i < r.Steps.Count; i++)
+        {
+            var s = r.Steps[i];
+            var k = s.Kind;
+            if (k is not ("Flag" or "Near" or "Area" or "Click" or "Manual" or "Agent" or "Dead"))
+                return $"bad_done: step {i + 1} Done.Kind '{k}' (Flag | Near | Area | Click | Manual | Agent | Dead)";
+            if (k is "Flag" or "Area" or "Dead" && string.IsNullOrWhiteSpace(s.Done?.Value))
+                return $"bad_done: step {i + 1} Done.Kind {k} needs Done.Value";
+            if (k is "Near" or "Click" && s.Target.Length == 0)
+                return $"bad_done: step {i + 1} Done.Kind {k} needs a Target to be near";
+        }
+        return null;
     }
 
     private static void Clip(AgentRouteDto r)

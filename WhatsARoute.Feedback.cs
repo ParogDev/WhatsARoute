@@ -57,7 +57,10 @@ public sealed partial class WhatsARoute
         if (_f8Quests.Count > 0)
             foreach (var (id, st) in _quests)
                 if (!_f8Quests.TryGetValue(id, out var was) || was != st) _f8QuestMove = (id, st, now, DateTime.Now, _lastObjective);
-        if (_quests.Count == 0) return;
+        if (_quests.Count == 0) return;   // a failed or empty read: no quest counts as finished on it
+        // A quest that finished drops out of the open quests: the commonest "quest moved, step didn't" (state -1 = finished).
+        foreach (var id in _f8Quests.Keys)
+            if (!_quests.ContainsKey(id)) _f8QuestMove = (id, -1, now, DateTime.Now, _lastObjective);
         _f8Quests.Clear();
         foreach (var kv in _quests) _f8Quests[kv.Key] = kv.Value;
     }

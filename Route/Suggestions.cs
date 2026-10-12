@@ -46,7 +46,7 @@ public static class Suggestions
     {
         var all = new List<SuggestionDto>();
         if (i.QuestMoved is { } q && i.QuestMovedAgo <= QuestWindowSec && !i.ObjectiveMovedSince)
-            all.Add(Make("quest-moved", "Quest moved, step didn't", $"{q} went to state {i.QuestMovedState} at {i.QuestMovedAt:HH:mm}", true,
+            all.Add(Make("quest-moved", "Quest moved, step didn't", $"{q} {(i.QuestMovedState < 0 ? "finished" : $"went to state {i.QuestMovedState}")} at {i.QuestMovedAt:HH:mm}", true,
                 ("quest", q), ("state", i.QuestMovedState), ("secondsAgo", Math.Round(i.QuestMovedAgo))));
         if (i.ResolverWhy is { } w && i.SecondsInArea >= TargetMissingAfterSec
             && (w.Contains("no tile matches", StringComparison.Ordinal) || w.Contains("targets.json has no", StringComparison.Ordinal)
