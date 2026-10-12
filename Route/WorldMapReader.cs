@@ -122,9 +122,11 @@ public sealed class WorldMapReader
         }
         if (matched == 0) { Why = $"no WorldMap[0][{act}][2] node (of {root.ChildCount}) has a WorldAreas row at +0x{AreaPtrOffset:X}: offset moved"; return; }
         if (Mode != View.Travel) return;
-        // Every town node on one spot: no wheels, this is the port (Act 4, Makoru's sailing map), and the islands' own
-        // nodes are what you click. Seen 2026-10-11: Kingsmarch's two nodes share a centre, each island is one node.
-        if (Stops.Count > 1 && Stops.TrueForAll(s => Vector2.Distance(s.ScanCenter, Stops[0].ScanCenter) < 4))
+        // The Act 4 sea (WorldMap[0][3]), or every town node on one spot: no wheels, this is the port (Makoru's sailing
+        // map), and the islands' own nodes are what you click. Seen 2026-10-11: Kingsmarch's two nodes share a centre,
+        // each island is one node. Opened from an island's ship (2026-10-12, Isle of Kin) the "town" is that island,
+        // whose content nodes are spread over it: the sea map itself says it is the port.
+        if (act == 3 || Stops.Count > 1 && Stops.TrueForAll(s => Vector2.Distance(s.ScanCenter, Stops[0].ScanCenter) < 4))
         {
             Port = true;
             Stops.Clear();
