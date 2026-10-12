@@ -53,6 +53,7 @@ public sealed class FreshView
             Push(now, newestM, newestP);
             StateAt(now - (long)(delayMs * Stopwatch.Frequency / 1000), out m, out pos);
         }
+        else _histCount = 0;   // not pushed while smooth: turning it off must not lerp from a sample taken long ago
         Motion.Apply((double)now / Stopwatch.Frequency, newestM, newestP, half, smooth, ref m, ref pos);
     }
 

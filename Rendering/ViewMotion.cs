@@ -87,8 +87,8 @@ public sealed class ViewMotion
         else if (advanced)
         {
             var gap = now - _t[2];
-            // Game frames are 3-50 ms apart; longer gaps are pauses (nothing moved), not a frame rate.
-            if (gap is > 0.002 and < 0.05) _interval += ((float)gap - _interval) * 0.1f;
+            // Game frames are 3-100 ms apart (down to a 10 fps cap); longer gaps are pauses (nothing moved), not a frame rate.
+            if (gap is > 0.002 and < 0.1) _interval += ((float)gap - _interval) * 0.1f;
             FramesPerAdvance += (_framesSinceAdvance - FramesPerAdvance) * 0.05f;
             _framesSinceAdvance = 0;
             _t[0] = _t[1]; _t[1] = _t[2]; _t[2] = now;
