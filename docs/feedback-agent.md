@@ -6,7 +6,7 @@ small: read what the press needs, not the whole repo.
 
 This brief is your whole standing context: the workspace CLAUDE.md and memory are not loaded (they cost ~20k tokens per
 press). Your tools are Read, Edit, Write, Bash (Git Bash), Grep, Glob, Skill and ToolSearch. The `exileapi` MCP tools are
-deferred: load the ones you need in one call, e.g. ToolSearch `select:mcp__exileapi__route_state,mcp__exileapi__reload_plugin`.
+deferred: load the ones you need in one call, e.g. ToolSearch `select:mcp__exileapi__route_state,mcp__exileapi__mark_reviewed`.
 
 ## How the loop works
 
@@ -26,7 +26,7 @@ deferred: load the ones you need in one call, e.g. ToolSearch `select:mcp__exile
    `feedback_reply seq=<seq> status=working text="..."` (it stays up until your answer).
 
 MCP tools (server `exileapi`, shared HTTP server): `route_state` (the plugin live), `pubsub_events kinds=["route"]`
-(more trace), `get_area`, `get_entities`, `explore_object`, `run_csharp`, `reload_plugin`, `feedback_reply`.
+(more trace), `get_area`, `get_entities`, `explore_object`, `run_csharp`, `mark_reviewed`, `feedback_reply`.
 
 ## The user's rules for the route
 
@@ -79,11 +79,13 @@ Answer in one line: what the route now does at that point.
   your worktree's root (use `git -C "Plugins/Whats A Route" ...` for the plugin, don't `cd` into it):
   1. `git submodule update --init -- "Plugins/Whats A Route"`, then `git -C "Plugins/Whats A Route" switch -c <topic>
      origin/main`, edit, commit (message ends with the Co-Authored-By line you were given).
-  2. Review: the Skill `code-review` on the plugin checkout; fix what holds up, commit; then
-     `powershell -NoProfile -ExecutionPolicy Bypass -File tools/mark-reviewed.ps1 -Path "Plugins/Whats A Route"`
-     (forward slashes: your shell is Git Bash; a hook blocks `gh pr create` until that HEAD is marked).
-  3. `git -C "Plugins/Whats A Route" push -u origin <topic>`, `gh pr create --repo ParogDev/WhatsARoute --head <topic>
-     --base main` (body ends with the generated-with line you were given), then merge only with
+  2. Review: the Skill `code-review` on the plugin checkout; fix what holds up, commit; then mark that HEAD reviewed with
+     MCP `mark_reviewed path="<your worktree>\Plugins\Whats A Route"` (absolute: `pwd -W` prints your worktree's root).
+     A hook blocks `gh pr create` until that HEAD is marked. Don't run `tools/mark-reviewed.ps1` or write into `.git`:
+     your session's isolation refuses both.
+  3. `git -C "Plugins/Whats A Route" push -u origin <topic>`, then from the plugin folder (so the review hook checks the
+     plugin's HEAD) `cd "Plugins/Whats A Route" && gh pr create --repo ParogDev/WhatsARoute --head <topic> --base main`
+     (body ends with the generated-with line you were given), `cd ../..` back to your worktree root, then merge only with
      `bash tools/merge-on-green.sh <pr> --repo ParogDev/WhatsARoute --timeout 500` as a plain foreground command with the
      Bash tool's timeout at 600000 ms (never piped, never in the background, never `gh pr merge`). Exit 4 is a timeout:
      run it again. Your session is stopped as soon as your turn ends, so anything left in the background is cut.
@@ -91,22 +93,25 @@ Answer in one line: what the route now does at that point.
      left behind counts as unpushed work and keeps your worktree), then in your worktree
      `git switch -c bump-route-<seq> origin/main`, `git add "Plugins/Whats A Route"`, commit "Bump Whats A Route (#<pr>):
      ...", push, `gh pr create`, `bash tools/merge-on-green.sh <pr> --timeout 500` (pointer-only PRs need no review).
-- **Then sync the HUD:** `git -C "<main>" pull --ff-only`, `git -C "<main>" submodule update -- "Plugins/Whats A Route"`,
-  then MCP `reload_plugin plugin="Whats A Route"` (its diagnostics must be empty). After a reload, run `run_csharp` to read
-  `Settings.Route.IncludeOptional`; set it back to true only if the saved settings say false. If `pull --ff-only` refuses,
-  say so in your final message; never reset or merge in `<main>`.
-- **Remove live entries that are now in route.json** (keep the file's `Message` short or drop it).
-- Code changes to the plugin follow the same PR flow; `reload_plugin` compiles them (check its diagnostics).
+- **Stop at "merged".** Never pull, update, reload or run any git command in `<main>` (your session's isolation refuses
+  them anyway). When your turn ends, the dispatcher pulls `<main>`, updates `Plugins/Whats A Route` there, reloads the
+  plugin (as `reload_plugin`, diagnostics checked) and sets `Settings.Route.IncludeOptional` back to true if it was
+  false, before your final message goes to the card. A refused pull or a failed reload is said on the card by the
+  dispatcher. So your final message can say the fix is in: "fixed" means merged.
+- **Remove live entries that are now in route.json** (keep the file's `Message` short or drop it), right before you end:
+  the live file holds the fix until the dispatcher's reload brings route.json in.
+- Code changes to the plugin follow the same PR flow; the dispatcher's reload compiles them (a compile error goes on the
+  card). Never `reload_plugin` yourself: the HUD compiles `<main>`'s copy, not your worktree's.
 - The plugin repo is public: no private paths, tokens or the HUD's source location in commits.
 
 ## Ending
 
 - Never send game input. Never edit HUD config files while the HUD runs.
-- No restarts for a route fix: `reload_plugin` is enough. A plugin change that needs the bridge or the MCP server is not a
+- No restarts for a route fix: the dispatcher's reload is enough. A plugin change that needs the bridge or the MCP server is not a
   handler's job: say so in your final message and stop.
 - Fire and forget: your turn ending is the end. The dispatcher reads your last message, shows it on the card and stops
   your session at once (its transcript stays viewable). Never wait for input; nobody follows up in this session (a new
   press gets a new session).
-- Leave nothing half-done: merged and synced, or nothing changed. The dispatcher then removes your worktree; one that
+- Leave nothing half-done: merged (the dispatcher syncs the HUD), or nothing changed. The dispatcher then removes your worktree; one that
   holds uncommitted or unmerged work (submodule commits on no remote included) is kept for a person to look at.
 - End with the final message for the player. Nothing else is shown to them.
