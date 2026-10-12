@@ -1187,7 +1187,10 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         actHere = strong && found;
         if (hasSteps && !actHere) return AutoUse.No;
         if (!hasSteps && !found && o.Kind is ObjectiveKind.Explore) return AutoUse.TextOnly;
-        if (_resolved.TravelTo == null) _resolved.Label = Sentence(o);   // a travel keeps "Exit to X" / "Travel to X": the way, not the deed
+        if (o.Kind == ObjectiveKind.Sail && _questObj is { } plan && !RouteBook.LikeAny(_areaRaw, plan.Area))
+            // Which island: the plan's next one (route.json's island order), named on the card and the marker.
+            _resolved.Label = $"Speak to Makoru: set sail for {_resolver.AreaName(GameController, RouteBook.FirstOf(plan.Area))}";
+        else if (_resolved.TravelTo == null) _resolved.Label = Sentence(o);   // a travel keeps "Exit to X" / "Travel to X": the way, not the deed
         else if (o.AreaName != null) _resolved.Label = $"{Sentence(o)}: {_resolved.Label}";
         return AutoUse.Spec;
     }

@@ -39,7 +39,7 @@ public sealed class TargetResolver
     public double Now;
 
     /// <summary>WorldAreas id to display name ("G3_3" -> "Jungle Ruins"), cached; the id itself when unknown.</summary>
-    private string AreaName(GameController gc, string id)
+    public string AreaName(GameController gc, string id)
     {
         if (!_areaNames.TryGetValue(id, out var name))
             _areaNames[id] = name = gc.Files.WorldAreas.EntriesList.FirstOrDefault(a => string.Equals(a.Id, id, StringComparison.OrdinalIgnoreCase))?.Name ?? id;
