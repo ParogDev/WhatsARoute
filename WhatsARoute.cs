@@ -1231,8 +1231,18 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
             // 1. A followed quest's thing right here (an NPC in sight, an item, a thing to click, a boss in view).
             // 2. Else, with no route.json objective for the state: the story's own words (travel, enter, wait...).
             AutoUse use = AutoUse.No; string? autoSpec = null;
+            // Several can act here (Makoru for the story, Farrow for a side quest, both in town): the nearest leads, so
+            // the player standing at the ship isn't sent across town first (2026-10-12). An item to use is nearest of all.
+            var bestD = int.MaxValue;
             foreach (var c in _autoHere)
-                if ((use = AutoObjective(c.Read, pending, out autoSpec, out var acts)) != AutoUse.No && acts) { _auto = c; break; }
+            {
+                var tried = AutoObjective(c.Read, pending, out _, out var acts);
+                if (tried == AutoUse.No || !acts) continue;
+                var d = tried == AutoUse.UseItem ? 0 : int.MaxValue - 1;
+                foreach (var g in _resolved.Goals) d = Math.Min(d, Math.Max(Math.Abs(g.x - cell.x), Math.Abs(g.y - cell.y)));
+                if (d < bestD) { bestD = d; _auto = c; }
+            }
+            if (_auto is { } near) use = AutoObjective(near.Read, pending, out autoSpec, out _);   // resolve the winner again: _resolved holds the last one tried
             if (_auto == null && (q == null || q.Target == "quest"))
                 foreach (var c in _autoPlan)
                     if ((use = AutoObjective(c.Read, pending, out autoSpec, out _)) != AutoUse.No) { _auto = c; break; }
