@@ -178,18 +178,41 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         string text;
         if (works) text = sent is { Ok: true } || fileSeq >= 0 ? "Thanks, noted as working" : $"Could not record it: {_feedback.Why}";
         else if (sent is { Ok: true })
+        {
             text = sent.Subscribers.Count > 0
                 ? $"Sent to Claude (#{sent.Seq}): a fresh Claude session picks it up in a moment"
-                : $"Saved (#{sent.Seq}), but no Claude dispatcher is listening right now: it is handled once one runs (open any Claude Code session)";
+                : NoDispatcher(sent.Seq);
+            AwaitClaim(sent);
+        }
         else text = $"Kept for Claude: {_bridge.Why ?? "the AI Bridge did not take it"}. It goes out as soon as the bridge is back"
                     + (fileSeq < 0 ? $" (feedback.jsonl failed too: {_feedback.Why})" : "");
-        Toast(text, works ? 4 : 12);
+        Toast(text, works ? 4 : 12);   // a press nobody listens to stays on (HandleReplies: _replyPending)
         _feedbackNote = "";
         _feedbackOpen = false;
     }
 
     private readonly SortedDictionary<long, (string text, double since)> _replyPending = new();   // press -> its "on it" line, until its answer (45 min at most)
     private readonly HashSet<long> _replyDone = new();
+    private readonly Dictionary<long, double> _unclaimed = new();   // press -> when it went out, until the dispatcher's first reply
+    private const double ClaimWaitSec = 20;
+
+    // The shared MCP server hosts the dispatcher and runs only inside the Claude app: no app, no dispatcher (2026-10-12,
+    // press #1065 sat unanswered). Fail at the broken link: the card keeps saying so until a dispatcher answers the press.
+    private static string NoDispatcher(long seq) =>
+        $"#{seq} waits: no Claude dispatcher is listening (the shared MCP server is down, e.g. the Claude app is closed). " +
+        @"Open the Claude app (any Code session starts it) or run tools\mcp-http-start.ps1 in a terminal inside it; the press is handled then";
+
+    private static string NotClaimed(long seq) =>
+        $"#{seq} not picked up after {ClaimWaitSec:0} s: no Claude dispatcher answered. " +
+        @"Claude app closed? Open it, or run tools\mcp-http-start.ps1 in a terminal inside it. Otherwise MCP feedback_dispatcher says why";
+
+    /// <summary>A press that went out: watched until the dispatcher's first reply; with nobody listening, said at once.</summary>
+    private void AwaitClaim(PublishResult sent)
+    {
+        var now = _clock.Elapsed.TotalSeconds;
+        _unclaimed[sent.Seq] = now;
+        if (sent.Subscribers.Count == 0) _replyPending[sent.Seq] = (NoDispatcher(sent.Seq), now);
+    }
 
     /// <summary>
     /// Tick: the dispatcher's and the handler's replies, per press. An answer shows ~25 s; a press still being worked on
@@ -198,9 +221,10 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
     private void HandleReplies(double now)
     {
         _bridge.Refresh(GameController.PluginBridge, now);
-        foreach (var seq in _bridge.Flushed) Toast($"Sent to Claude (#{seq}) now that the AI Bridge is back", 8);
+        foreach (var seq in _bridge.Flushed) { Toast($"Sent to Claude (#{seq}) now that the AI Bridge is back", 8); _unclaimed[seq] = now; }
         foreach (var r in _bridge.TakeReplies())
         {
+            _unclaimed.Remove(r.Ref);
             var text = r.Text is { Length: > 0 } t ? t : r.Status;
             if (r.Final)
             {
@@ -213,6 +237,11 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                 _replyPending[r.Ref] = (text, now);
                 Toast(text, 900);   // until the answer replaces it (15 min cap)
             }
+        }
+        foreach (var seq in _unclaimed.Where(kv => now - kv.Value >= ClaimWaitSec).Select(kv => kv.Key).ToList())
+        {
+            _unclaimed.Remove(seq);
+            if (!_replyPending.ContainsKey(seq) && !_replyDone.Contains(seq)) { _replyPending[seq] = (NotClaimed(seq), now); Toast(NotClaimed(seq), 900); }
         }
         foreach (var old in _replyPending.Where(kv => now - kv.Value.since > 2700).Select(kv => kv.Key).ToList()) _replyPending.Remove(old);
         if (_replyPending.Count > 0 && now >= _toastUntil) Toast(_replyPending[_replyPending.Keys.Max()].text, 900);
@@ -676,6 +705,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
         };
         _feedback.Write(fb);
         var sent = _bridge.Publish("feedback", fb, keep: true);
+        if (sent is { Ok: true }) AwaitClaim(sent);
         Toast(sent is { Ok: true }
             ? $"Heads-up sent (#{sent.Seq}): {changes} change{(changes == 1 ? "" : "s")} for Claude to map into the route"
             : $"Heads-up kept for Claude ({changes} changes): {_bridge.Why ?? "the AI Bridge did not take it"}", 10);
