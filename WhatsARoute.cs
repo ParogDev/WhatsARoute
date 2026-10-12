@@ -595,6 +595,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         if (c.Ref is { } pressRef) { fb.Event = "capture"; fb.Ref = pressRef; }
         _feedback.Write(fb);
         var sent = _bridge.Publish(c.Ref != null ? AiBridgeLink.CaptureKind : "feedback", fb, keep: true);
+        if (sent is { Ok: true } && c.Ref == null) AwaitClaim(sent);   // a heads-up is a press of its own (a capture is its press's)
         Toast(sent is { Ok: true }
             ? $"Heads-up sent (#{sent.Seq}): {changes} change{(changes == 1 ? "" : "s")} for Claude to map into the route"
             : $"Heads-up kept for Claude ({changes} changes): {_bridge.Why ?? "the AI Bridge did not take it"}", 10);

@@ -240,9 +240,7 @@ public sealed partial class WhatsARoute
         if (sent is { Ok: true })
         {
             _compose.Sent(now, $"SENT #{sent.Seq} - {summary}", false);
-            // An older bridge draws no progress: say here when no dispatcher listens (the new one's strip says "nobody listening yet").
-            if (!_bridge.DrawsProgress && sent.Subscribers.Count == 0 && !worksOnly)
-                Toast($"Saved (#{sent.Seq}), but no Claude dispatcher is listening right now: it is handled once one runs (open any Claude Code session)", 12);
+            if (!worksOnly) AwaitClaim(sent);
             if (dto.WatchNext == true) StartWatchNext(sent.Seq);
         }
         else
@@ -271,6 +269,27 @@ public sealed partial class WhatsARoute
     /// <summary>The F8 replies (feedback.reply). The bridge draws them (work strip and toasts); only an older bridge leaves them to the card's line.</summary>
     private readonly SortedDictionary<long, (string text, double since)> _replyPending = new();   // press -> its "on it" line, until its answer (45 min at most)
     private readonly HashSet<long> _replyDone = new();
+    private readonly Dictionary<long, double> _unclaimed = new();   // press -> when it went out, until the dispatcher's first reply
+    private const double ClaimWaitSec = 20;
+
+    // The shared MCP server hosts the dispatcher and runs only inside the Claude app: no app, no dispatcher (2026-10-12,
+    // press #1065 sat unanswered). Fail at the broken link: the card keeps saying so until a dispatcher answers the press,
+    // with either bridge (the new one's strip only says "nobody listening yet"; this line says what to do).
+    private static string NoDispatcher(long seq) =>
+        $"#{seq} waits: no Claude dispatcher is listening (the shared MCP server is down, e.g. the Claude app is closed). " +
+        @"Open the Claude app (any Code session starts it) or run tools\mcp-http-start.ps1 in a terminal inside it; the press is handled then";
+
+    private static string NotClaimed(long seq) =>
+        $"#{seq} not picked up after {ClaimWaitSec:0} s: no Claude dispatcher answered. " +
+        @"Claude app closed? Open it, or run tools\mcp-http-start.ps1 in a terminal inside it. Otherwise MCP feedback_dispatcher says why";
+
+    /// <summary>A press that went out: watched until the dispatcher's first reply; with nobody listening, said at once.</summary>
+    private void AwaitClaim(PublishResult sent)
+    {
+        var now = _clock.Elapsed.TotalSeconds;
+        _unclaimed[sent.Seq] = now;
+        if (sent.Subscribers.Count == 0) { _replyPending[sent.Seq] = (NoDispatcher(sent.Seq), now); Toast(NoDispatcher(sent.Seq), 900); }
+    }
 
     /// <summary>
     /// Tick: the dispatcher's and the handler's replies. With a bridge that draws progress (it has AIBridge.WorkList) they
@@ -280,10 +299,16 @@ public sealed partial class WhatsARoute
     private void HandleReplies(double now)
     {
         _bridge.Refresh(GameController.PluginBridge, now);
-        foreach (var seq in _bridge.Flushed) Toast($"Sent to Claude (#{seq}) now that the AI Bridge is back", 8);
+        foreach (var seq in _bridge.Flushed) { Toast($"Sent to Claude (#{seq}) now that the AI Bridge is back", 8); _unclaimed[seq] = now; }
         foreach (var r in _bridge.TakeReplies())
         {
-            if (_bridge.DrawsProgress) { _replyPending.Remove(r.Ref); continue; }
+            _unclaimed.Remove(r.Ref);
+            if (_bridge.DrawsProgress)
+            {
+                // The bridge draws it; a "no dispatcher" line of ours goes now that one answered.
+                if (_replyPending.Remove(r.Ref) && _replyPending.Count == 0) _toastUntil = 0;
+                continue;
+            }
             var text = r.Text is { Length: > 0 } t ? t : r.Status is { Length: > 0 } st ? st : r.Stage ?? "";
             if (r.Final)
             {
@@ -296,6 +321,11 @@ public sealed partial class WhatsARoute
                 _replyPending[r.Ref] = (text, now);
                 Toast(text, 900);   // until the answer replaces it (15 min cap)
             }
+        }
+        foreach (var seq in _unclaimed.Where(kv => now - kv.Value >= ClaimWaitSec).Select(kv => kv.Key).ToList())
+        {
+            _unclaimed.Remove(seq);
+            if (!_replyPending.ContainsKey(seq) && !_replyDone.Contains(seq)) { _replyPending[seq] = (NotClaimed(seq), now); Toast(NotClaimed(seq), 900); }
         }
         foreach (var old in _replyPending.Where(kv => now - kv.Value.since > 2700).Select(kv => kv.Key).ToList()) _replyPending.Remove(old);
         if (_replyPending.Count > 0 && now >= _toastUntil) Toast(_replyPending[_replyPending.Keys.Max()].text, 900);
