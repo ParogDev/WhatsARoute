@@ -3,6 +3,7 @@
   "Rules": [
     { "Kind": "Sail",    "Pattern": "\\bpick an island and set sail\\b" },
     { "Kind": "Sail",    "Pattern": "\\bguide your ship to (?:the )?(?<x>.+?)(?=$|[.,])" },
+    { "Kind": "Sail",    "Pattern": "\\bto travel to a new island\\b" },
     { "Kind": "PickUp",  "Pattern": "\\bpick (?:it|them) up\\b" },
     { "Kind": "Talk",    "Pattern": "^(?<x>[A-Z][\\w']+) is offering you\\b" },
     { "Kind": "Talk",    "Pattern": "\\breturn to (?<area>[A-Z][\\w' ]+?) and (?:speak|talk) (?:to|with) (?<x>.+?)(?=$|[.,]| (?:to|about|for)\\b)" },
