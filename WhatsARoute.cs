@@ -1435,6 +1435,7 @@ public sealed class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings>
                     // Landed on an Act 4 island: the ship's rope ladder (a quest object, not an area transition) is the way
                     // onto the island (2026-10-12, the user on the Isle of Kin: "get down near the ladder").
                     _resolver.Resolve(GameController, _book, "entity:ShipRopeLadderTransition", _areaRaw, _resolved);
+                    _resolved.ViaPortal = portal;
                     _resolved.Label = _resolved.Goals.Count > 0 ? $"Climb down the rope ladder: {target}" : $"Way out: {target} can't be reached from here";
                 }
                 if (_resolved.Goals.Count == 0) _resolved.Why = $"cut off from '{target}' and no exit seen on this part of the area";
