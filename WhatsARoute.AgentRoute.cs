@@ -343,14 +343,22 @@ public sealed partial class WhatsARoute
         }
     }
 
-    /// <summary>DrawStatus: the card's input while the agent route is on it (byline, its step, dots, note).</summary>
+    /// <summary>DrawStatus: the card's input while the agent route is on it (byline, its step, dots, note, pills, washes) and the parked pill.</summary>
     private void AgentStatus(ref StatusPanel.Input i, double now)
     {
         BuildAgentView(now);
         var v = _agentView;
         i.Byline = v.Byline.Length > 0 ? v.Byline : null;
         i.BylineHue = v.Hue;
+        i.AgentOnCard = v.OnCard;
+        i.ParkedText = v.ParkedVisible ? v.ParkedText : null;
+        i.ParkedHue = v.ParkedHue;
+        // The wash: the owner's hue when an agent route took the card, gold when it handed back (whichever was last).
+        if (v.HandBackAt > v.TookOverAt) { i.WashAt = v.HandBackAt; i.WashHue = AgentRouteView.Gold; }
+        else { i.WashAt = v.TookOverAt; i.WashHue = v.Hue; }
         if (!v.OnCard) return;
+        i.DidIt = v.DidItVisible;
+        i.BackToRoute = v.BackToRouteVisible;
         i.Manual = false; i.NoRoute = false; i.QuestTarget = false;
         if (v.Holding)
         {
@@ -384,43 +392,54 @@ public sealed partial class WhatsARoute
         _agentView.Blend(ref core, ref glow);
     }
 
-    private float _agentControlsH;
+    private readonly ToastFamily.Hover _agentHover = new();
+    private const string WhyTitle = "WHY";
 
     /// <summary>
-    /// The card's pills as a plain ImGui row under the card (functional until the card draws them itself): Did it, Back to
-    /// route, and the parked route's resume pill.
+    /// The card's controls (research/f8-agent-ux.md 4.1), drawn by StatusPanel on the card itself: the mouse comes from one
+    /// ImGui window (###route_agent_pills, no background, no decoration) laid exactly over the card while it has controls,
+    /// with InvisibleButtons on the rects the card reported (the byline: hover asks WHY; Did it; Back to route; the parked
+    /// route's pill: click resumes it). Hover flags go back to the card for its next frame; tooltips are toast-family hovers
+    /// under the card. A normal route card has no window: clicks there go to the game.
     /// </summary>
     private void DrawAgentControls(double now)
     {
+        var s = _status;
         var v = _agentView;
-        _agentControlsH = 0;
-        if (!v.DidItVisible && !v.BackToRouteVisible && !v.ParkedVisible) return;
-        ImGui.SetNextWindowPos(new Vector2(Settings.Debug.StatusX.Value, Settings.Debug.StatusY.Value + _status.Height + 4), ImGuiCond.Always);
-        ImGui.SetNextWindowBgAlpha(0.6f);
-        const ImGuiWindowFlags flags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings
-            | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoFocusOnAppearing | ImGuiWindowFlags.NoMove;
+        s.HoverByline = s.HoverDidIt = s.HoverBack = s.HoverParked = false;
+        if (!s.HasControls || s.Height <= 0f) return;
+        var pos = new Vector2(Settings.Debug.StatusX.Value, Settings.Debug.StatusY.Value);
+        var size = new Vector2(MathF.Round(s.Width), MathF.Round(s.Height));
+        ImGui.SetNextWindowPos(pos, ImGuiCond.Always);
+        ImGui.SetNextWindowSize(size, ImGuiCond.Always);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, Vector2.Zero);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+        const ImGuiWindowFlags flags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoSavedSettings
+            | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoFocusOnAppearing | ImGuiWindowFlags.NoBringToFrontOnFocus | ImGuiWindowFlags.NoNav
+            | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse | ImGuiWindowFlags.NoBackground;
+        var below = pos.Y + size.Y;
         if (ImGui.Begin("###route_agent_pills", flags))
         {
-            if (v.DidItVisible)
-            {
-                if (ImGui.Button("Did it")) AgentDidIt();
-                ImGui.SameLine();
-            }
-            if (v.BackToRouteVisible)
-            {
-                if (ImGui.Button("Back to route")) AgentBackToRoute();
-                if (ImGui.IsItemHovered()) ImGui.SetTooltip(v.BackToRouteTooltip);
-            }
-            if (v.ParkedVisible)
-            {
-                if (v.BackToRouteVisible) ImGui.SameLine();
-                ImGui.PushStyleColor(ImGuiCol.Text, Glow.Col(v.ParkedHue, 1f));
-                if (ImGui.Button("o " + v.ParkedText)) AgentResumeParked();
-                ImGui.PopStyleColor();
-            }
-            _agentControlsH = ImGui.GetWindowHeight();
+            if (s.BylineMax.X > s.BylineMin.X) AgentControl("##agent_byline", s.BylineMin, s.BylineMax, out s.HoverByline);   // hover only: WHY
+            if (s.HoverByline && v.Reason != null) _agentHover.Draw(WhyTitle, v.Reason, v.HoverFoot, v.Hue, pos.X, below, pos.Y);
+            if (s.DidItMax.X > s.DidItMin.X && AgentControl("##agent_didit", s.DidItMin, s.DidItMax, out s.HoverDidIt)) AgentDidIt();
+            if (s.HoverDidIt) _agentHover.Draw(null, "You did this step: the agent route moves on.", null, ToastFamily.Accent, pos.X, below, pos.Y);
+            if (s.BackMax.X > s.BackMin.X && AgentControl("##agent_back", s.BackMin, s.BackMax, out s.HoverBack)) AgentBackToRoute();
+            if (s.HoverBack) _agentHover.Draw(null, v.BackToRouteTooltip, null, ToastFamily.Neutral, pos.X, below, pos.Y);
+            if (s.ParkedMax.X > s.ParkedMin.X && AgentControl("##agent_parked", s.ParkedMin, s.ParkedMax, out s.HoverParked)) AgentResumeParked();
+            if (s.HoverParked) _agentHover.Draw(null, "Follow " + v.ParkedText + " again, from the step it was on.", null, v.ParkedHue, pos.X, below, pos.Y);
         }
         ImGui.End();
+        ImGui.PopStyleVar(2);
+    }
+
+    /// <summary>An InvisibleButton over a rect the card reported; returns the click, hands back the hover.</summary>
+    private static bool AgentControl(string id, Vector2 min, Vector2 max, out bool hovered)
+    {
+        ImGui.SetCursorScreenPos(min);
+        ImGui.InvisibleButton(id, max - min);
+        hovered = ImGui.IsItemHovered();
+        return ImGui.IsItemClicked();
     }
 
     /// <summary>{"clear":true}: the bridge clears the step highlight in the owner's layer.</summary>

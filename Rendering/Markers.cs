@@ -27,6 +27,13 @@ public sealed class Markers
     private readonly Vector2[] _ring = new Vector2[RingPts + 1];
     private readonly Vector2[] _seg = new Vector2[3];
 
+    /// <summary>
+    /// While the compose panel's Marker scope is hovered (set to a moment ahead each frame by the drawer), one extra sonar
+    /// ring leaves the marker every 0.8 s (research/f8-agent-ux.md 2.5). It dies with the hover: nothing lingers.
+    /// </summary>
+    public double HoverPulseUntil = -1;
+    private const double HoverPulseSec = 0.8;
+
     // ── World: an entity's bounding box ──────────────────────────────
 
     /// <summary>
@@ -60,6 +67,12 @@ public sealed class Markers
         var k = (float)(age % SonarSec / SonarSec);
         if (age > 0.3 && Ellipse(m, halfScreen, disp, pos, r * (1f + 0.6f * Glow.Smooth(k)), r * (1f + 0.6f * Glow.Smooth(k))))
             Glow.Line(dl, _ring, RingPts + 1, glow, (0.3f + 0.3f * near) * (1f - k) * snap, 1.6f);
+        if (time < HoverPulseUntil)
+        {
+            var hk = (float)(time % HoverPulseSec / HoverPulseSec);
+            if (Ellipse(m, halfScreen, disp, pos, r * (1f + 0.8f * Glow.Smooth(hk)), r * (1f + 0.8f * Glow.Smooth(hk))))
+                Glow.Line(dl, _ring, RingPts + 1, core, 0.7f * (1f - hk) * snap, 1.8f);
+        }
 
         // The pin: one hairline from the pad to just above the object's top, then the chevron and the name.
         var top = MathF.Max(height, 60f) + 16f;
@@ -104,6 +117,11 @@ public sealed class Markers
         // Sonar.
         var k = (float)(age % SonarSec / SonarSec);
         if (age > 0.3) dl.AddCircle(center, r0 * (1f + 0.5f * Glow.Smooth(k)), Glow.Col(glow, 0.55f * (1f - k) * snap), 48, 1.6f);
+        if (time < HoverPulseUntil)
+        {
+            var hk = (float)(time % HoverPulseSec / HoverPulseSec);
+            dl.AddCircle(center, r0 * (1f + 0.7f * Glow.Smooth(hk)), Glow.Col(core, 0.7f * (1f - hk) * snap), 48, 1.8f);
+        }
 
         // Brackets on the bounding square, sliding in.
         var slide = (1f - snap) * 12f;

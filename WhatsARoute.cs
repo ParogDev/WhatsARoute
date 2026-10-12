@@ -163,7 +163,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
     /// </summary>
     private void DrawToast(double now)
     {
-        if (_toast == null || now >= _toastUntil) return;
+        if (_toast == null || now >= _toastUntil || DrawToastStyled(now)) return;   // the toast family's look (WhatsARoute.Compose.cs)
         var a = (float)Math.Clamp(_toastUntil - now, 0, 1);
         var dl = ImGui.GetBackgroundDrawList();
         var font = ImGui.GetFont();
@@ -603,7 +603,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
     /// <summary>The heads-up panel: what you are about to do (one click starts watching), or the running capture.</summary>
     private void DrawHeadsUp(double now)
     {
-        if (!_headsUpOpen) return;
+        if (!_headsUpOpen || DrawHeadsUpStyled(now)) return;   // the compose panel's small sibling (WhatsARoute.Compose.cs)
         ImGui.SetNextWindowPos(new Vector2(Settings.Debug.StatusX.Value, Settings.Debug.StatusY.Value + 110), ImGuiCond.Appearing);
         ImGui.SetNextWindowBgAlpha(0.92f);
         if (!ImGui.Begin("Heads up##WhatsARoute", ref _headsUpOpen, ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoCollapse))

@@ -14,8 +14,9 @@ namespace WhatsARoute;
 /// preselected (Route/Suggestions.cs); the player picks what is wrong (chips), what it is about (scope), optionally a note,
 /// where to look and hints, and sends with one click or Enter. The press goes out as a "feedback" event (Event "f8") through
 /// the AI Bridge; the MCP's dispatcher starts a session for it. The bridge draws the press's progress (its work strip and
-/// toasts); this plugin draws only the one-line receipt. The state lives in <see cref="ComposeState"/>; the panel here is
-/// a plain ImGui version until the styled drawer replaces it.
+/// toasts); this plugin draws only the one-line receipt. The state lives in <see cref="ComposeState"/>; the panel itself is
+/// drawn in the toast family by WhatsARoute.Compose.cs (DrawCompose, DrawReceipt). This file opens it, reads what the
+/// suggestions need and sends.
 /// </summary>
 public sealed partial class WhatsARoute
 {
@@ -106,6 +107,17 @@ public sealed partial class WhatsARoute
     private void OpenCompose(double now)
     {
         var panel = BigPanelName();
+        _composeAvoid = null;
+        try
+        {
+            // The NPC dialogue's rect: the panel shifts below it rather than cover it (f8-agent-ux.md 6).
+            if (GameController.IngameState.IngameUi.NpcDialog is { IsVisible: true } npc)
+            {
+                var r = npc.GetClientRect();
+                _composeAvoid = (new Vector2(r.Left, r.Top), new Vector2(r.Right, r.Bottom));
+            }
+        }
+        catch { /* no dialogue rect: nothing to avoid */ }
         var area = GameController.Area.CurrentArea;
         var input = new SuggestionInput
         {
@@ -158,14 +170,16 @@ public sealed partial class WhatsARoute
     /// </summary>
     private string? BigPanelName()
     {
+        _composePanelEl = null;
         try
         {
             var ui = GameController.IngameState.IngameUi;
-            if (ui.NpcDialog is { IsVisible: true } d) return "NPC dialogue" + (d.NpcName is { Length: > 0 } n ? $" ({n})" : "");
+            if (ui.NpcDialog is { IsVisible: true } d) { _composePanelEl = d; return "NPC dialogue" + (d.NpcName is { Length: > 0 } n ? $" ({n})" : ""); }
             ExileCore2.PoEMemory.Element? open = null;
             foreach (var p in ui.FullscreenPanels.Concat(ui.LargePanels))
                 if (p is { Address: not 0, IsVisibleLocal: true }) { open = p; break; }
             if (open == null) return null;
+            _composePanelEl = open;
             if (_panelNames == null || _panelNamesUi != ui.Address)
             {
                 _panelNamesUi = ui.Address;
@@ -282,127 +296,5 @@ public sealed partial class WhatsARoute
         }
         foreach (var old in _replyPending.Where(kv => now - kv.Value.since > 2700).Select(kv => kv.Key).ToList()) _replyPending.Remove(old);
         if (_replyPending.Count > 0 && now >= _toastUntil) Toast(_replyPending[_replyPending.Keys.Max()].text, 900);
-    }
-
-    // ── The panel (plain ImGui; the styled drawer reads the same ComposeState) ──
-
-    private static readonly Vector4 ChipOff = new(0.169f, 0.180f, 0.212f, 0.55f), ChipOn = new(0f, 0.808f, 0.820f, 0.85f),
-        ChipWarn = new(0.984f, 0.749f, 0.141f, 0.80f), ChipHover = new(0f, 0.808f, 0.820f, 0.30f), InkText = new(0.051f, 0.078f, 0.059f, 1f);
-
-    private void DrawCompose(double now)
-    {
-        var c = _compose;
-        if (now - _workAt >= WorkEverySec) UpdateVerify(now);
-        var y = Settings.Debug.StatusY.Value + (Settings.Debug.ShowStatus.Value ? _status.Height + 12 + _agentControlsH : 110);
-        ImGui.SetNextWindowPos(new Vector2(Settings.Debug.StatusX.Value, y), ImGuiCond.Always);
-        ImGui.SetNextWindowSizeConstraints(new Vector2(480, 0), new Vector2(480, 2000));
-        ImGui.SetNextWindowBgAlpha(0.94f);
-        const ImGuiWindowFlags flags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoCollapse
-            | ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoMove;
-        if (!ImGui.Begin("###route_f8", flags)) { ImGui.End(); return; }
-        var guard = c.Guarded(now);
-        var send = false; bool works = false; string? verdict = null; long? refSeq = null;
-
-        ImGui.TextUnformatted("[F8] FEEDBACK");
-        ImGui.SameLine();
-        ImGui.TextDisabled(c.Context.Length > 52 ? c.Context[..50] + ".." : c.Context);
-        ImGui.SameLine(ImGui.GetWindowWidth() - 30);
-        if (ImGui.SmallButton("x##f8close")) _feedbackOpen = false;
-        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Close (Esc). Nothing is sent.");
-
-        if (c.Verify is { } v)
-        {
-            ImGui.TextUnformatted(v.Lead);
-            ImGui.SameLine();
-            if (ImGui.Button("Works now##f8v") && !guard) { send = true; verdict = "works"; refSeq = v.Seq; }
-            ImGui.SameLine();
-            if (ImGui.Button("Still wrong##f8v") && !guard) { send = true; verdict = "still-wrong"; refSeq = v.Seq; }
-        }
-
-        if (c.Suggestions.Count > 0)
-        {
-            ImGui.TextDisabled("LOOKS LIKE");
-            for (var i = 0; i < c.Suggestions.Count; i++)
-            {
-                var s = c.Suggestions[i];
-                if (i > 0) ImGui.SameLine();
-                if (ChipButton((s.Certain ? "* " : "o ") + s.Label, $"s{i}", s.Kept, s.Certain && s.Kept, c.DigitOf(ComposeState.ChipKind.Suggestion, i), guard))
-                    c.ToggleSuggestion(i);
-                if (ImGui.IsItemHovered()) ImGui.SetTooltip(s.Reason);
-            }
-        }
-
-        ImGui.TextDisabled("WHAT'S WRONG");
-        for (var i = 0; i < ComposeState.FlagChips.Length; i++)
-        {
-            var f = ComposeState.FlagChips[i];
-            if (i % 4 != 0) ImGui.SameLine();
-            if (ChipButton(f.Label, $"f{i}", c.FlagOn(f.Id), false, c.DigitOf(ComposeState.ChipKind.Flag, i), guard)) c.ToggleFlag(f.Id);
-        }
-
-        ImGui.TextDisabled("ABOUT");
-        c.HoverScope = null;
-        for (var i = 0; i < c.ScopeChips.Count; i++)
-        {
-            var sc = c.ScopeChips[i];
-            ImGui.SameLine();
-            if (ChipButton(sc.Label, $"c{i}", c.Scope == sc.Id, false, c.DigitOf(ComposeState.ChipKind.Scope, i), guard)) c.SetScope(sc.Id);
-            if (ImGui.IsItemHovered()) c.HoverScope = sc.Id;
-        }
-
-        ImGui.SetNextItemWidth(460);
-        if (ImGui.InputTextWithHint("##f8note", "Say more (optional)", ref c.Note, ComposeState.NoteMax, ImGuiInputTextFlags.EnterReturnsTrue) && !guard) send = true;
-        ImGui.SetNextItemWidth(460);
-        if (ImGui.InputTextWithHint("##f8watch", "Where should Claude look? e.g. \"only the panel open now\"", ref c.WatchFor, ComposeState.WatchForMax, ImGuiInputTextFlags.EnterReturnsTrue) && !guard) send = true;
-        for (var i = 0; i < c.HintChips.Count; i++)
-        {
-            var h = c.HintChips[i];
-            if (i > 0) ImGui.SameLine();
-            if (ChipButton(h.Label, $"h{i}", c.HintOn(h.Id), false, c.DigitOf(ComposeState.ChipKind.Hint, i), guard)) c.ToggleHint(h.Id);
-        }
-
-        if (ImGui.Button("Works here##f8works") && !guard) { send = true; works = true; }
-        ImGui.SameLine(ImGui.GetWindowWidth() - 120);
-        if (ImGui.Button("> Send   Enter##f8send") && !guard) send = true;
-
-        // Keys once the panel has focus (the first click gives it): Enter sends, Esc closes, digits toggle chips.
-        if (ImGui.IsWindowFocused(ImGuiFocusedFlags.RootAndChildWindows) && !guard)
-        {
-            if (ImGui.IsKeyPressed(ImGuiKey.Escape)) _feedbackOpen = false;
-            else if (ImGui.IsKeyPressed(ImGuiKey.Enter) || ImGui.IsKeyPressed(ImGuiKey.KeypadEnter)) send = true;
-            else if (!ImGui.GetIO().WantTextInput)
-                for (var d = 0; d <= 9; d++)
-                    if (ImGui.IsKeyPressed(ImGuiKey._0 + d)) { c.PressDigit(d); break; }
-        }
-        ImGui.End();
-        if (send && _feedbackOpen) SendPress(works, verdict, refSeq);
-    }
-
-    /// <summary>A chip as a toggle button: accent when on, warn for a preselected suggestion, the digit badge in front.</summary>
-    private static bool ChipButton(string label, string id, bool on, bool warn, string? digit, bool guard)
-    {
-        ImGui.PushStyleColor(ImGuiCol.Button, warn ? ChipWarn : on ? ChipOn : ChipOff);
-        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, on ? (warn ? ChipWarn : ChipOn) : ChipHover);
-        ImGui.PushStyleColor(ImGuiCol.Text, on ? InkText : new Vector4(0.949f, 0.945f, 0.933f, 0.85f));
-        var clicked = ImGui.Button($"{(digit != null && !ImGui.GetIO().WantTextInput ? digit + " " : "")}{(on ? "[x] " : "")}{label}##chip{id}");
-        ImGui.PopStyleColor(3);
-        return clicked && !guard;
-    }
-
-    /// <summary>The receipt: one line where the panel was, accent (or warn when kept), held 1.2 s, fading 0.3 s.</summary>
-    private void DrawReceipt(double now)
-    {
-        var a = _compose.ReceiptAlpha(now);
-        if (a <= 0f || _compose.ReceiptText is not { } text) return;
-        var dl = ImGui.GetForegroundDrawList();
-        var size = ImGui.GetFontSize() * 0.9f;
-        var ts = ImGui.GetFont().CalcTextSizeA(size, float.MaxValue, 0f, text);
-        var y = Settings.Debug.StatusY.Value + (Settings.Debug.ShowStatus.Value ? _status.Height + 12 + _agentControlsH : 110);
-        var min = new Vector2(Settings.Debug.StatusX.Value, y);
-        var max = min + new Vector2(MathF.Max(480, ts.X + 30), ts.Y + 14);
-        var tone = _compose.ReceiptWarn ? new Vector3(0.984f, 0.749f, 0.141f) : new Vector3(0f, 0.808f, 0.820f);
-        dl.AddRectFilled(min, max, Glow.Col(new Vector3(0.082f, 0.090f, 0.110f), 0.94f * a));
-        dl.AddRectFilled(min, new Vector2(min.X + 3, max.Y), Glow.Col(tone, a));
-        dl.AddText(ImGui.GetFont(), size, min + new Vector2(15, 7), Glow.Col(_compose.ReceiptWarn ? tone : new Vector3(0.949f, 0.945f, 0.933f), a), text);
     }
 }
