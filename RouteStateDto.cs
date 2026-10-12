@@ -97,4 +97,26 @@ public sealed class RouteTimingsDto
     public int Goals { get; set; }
     /// <summary>How the big-panel check reads the panel flag: "raw" (Flags bit, one read per panel), or why it fell back to IsVisibleLocal.</summary>
     public string? PanelCheck { get; set; }
+    /// <summary>Smooth motion of the world drawings (Rendering/ViewMotion.cs): lag and jitter.</summary>
+    public RouteMotionDto Motion { get; set; } = new();
+}
+
+public sealed class RouteMotionDto
+{
+    public bool Smooth { get; set; }
+    /// <summary>How far behind the newest view the world drawings are drawn, ms: 1.5 game frames when smooth, else the draw delay.</summary>
+    public double LagMs { get; set; }
+    /// <summary>The measured game frame interval, ms.</summary>
+    public double GameFrameMs { get; set; }
+    /// <summary>HUD frames per game frame (above 1: the HUD runs faster than the game, the case that stutters).</summary>
+    public double HudFramesPerGameFrame { get; set; }
+    /// <summary>
+    /// Average second difference of a static world probe's screen position per HUD frame while it moves, px: how unevenly
+    /// it moves. Raw is the projection with the newest view; Shown is what is drawn (smooth or not, so turning smooth
+    /// motion off gives the before numbers). Points is the per-point alternative (each projection buffered and
+    /// interpolated, as the health bars do), measured on the same motion for comparison.
+    /// </summary>
+    public double JitterRawPx { get; set; }
+    public double JitterShownPx { get; set; }
+    public double JitterPointsPx { get; set; }
 }

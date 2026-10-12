@@ -16,7 +16,8 @@ namespace WhatsARoute.Rendering;
 /// Calibration, once per camera / player Render address: the HUD's own values are located in a fresh copy of each
 /// object's first 0x400 bytes; then every frame reads 64 + 12 bytes through the HUD's leaf memory backend (no page
 /// cache, no allocation). When the backend can't be reached or a value isn't found, the HUD's cached snapshot is used
-/// and Status says so.
+/// and Status says so. With smooth motion on (the default) the view is drawn between the last game frames instead of
+/// DelayMs behind (ViewMotion): a sample per HUD frame repeats or skips game frames, so the drawing stuttered.
 /// </summary>
 public sealed class FreshView
 {
@@ -32,10 +33,32 @@ public sealed class FreshView
     public string Status = "off";
     public bool Fresh;   // the last Sample came from fresh memory
 
-    public void Reset() { _camOffset = -1; _posOffset = -1; _histCount = 0; _histHead = 0; }
+    public void Reset() { _camOffset = -1; _posOffset = -1; _histCount = 0; _histHead = 0; Motion.Reset(); }
 
-    /// <summary>The matrix, half size and player position to draw with this frame.</summary>
-    public void Sample(GameController gc, Render player, double delayMs, bool enabled, out Matrix4x4 m, out Vector2 half, out Vector3 pos)
+    /// <summary>Smooth motion: the view drawn between the last game frames (ViewMotion), with its jitter measurement.</summary>
+    public readonly ViewMotion Motion = new();
+
+    /// <summary>
+    /// The matrix, half size and player position to draw with this frame. Smooth: the newest view (fresh, else the HUD's
+    /// copy) goes through ViewMotion, drawn between the last two game frames. Not smooth: as before, the fresh state as of
+    /// DelayMs ago (a sample per HUD frame), else the HUD's copy.
+    /// </summary>
+    public void Sample(GameController gc, Render player, double delayMs, bool enabled, bool smooth, out Matrix4x4 m, out Vector2 half, out Vector3 pos)
+    {
+        var now = Stopwatch.GetTimestamp();
+        Newest(gc, player, enabled, out m, out half, out pos);
+        var newestM = m; var newestP = pos;
+        if (Fresh && !smooth)
+        {
+            Push(now, newestM, newestP);
+            StateAt(now - (long)(delayMs * Stopwatch.Frequency / 1000), out m, out pos);
+        }
+        else _histCount = 0;   // not pushed while smooth: turning it off must not lerp from a sample taken long ago
+        Motion.Apply((double)now / Stopwatch.Frequency, newestM, newestP, half, smooth, ref m, ref pos);
+    }
+
+    /// <summary>The latest view: read fresh from the game when it can be, else the HUD's cached snapshot (Status says why).</summary>
+    private void Newest(GameController gc, Render player, bool enabled, out Matrix4x4 m, out Vector2 half, out Vector3 pos)
     {
         var cam = gc.IngameState.Camera;
         var snap = cam.Snapshot;
@@ -61,10 +84,7 @@ public sealed class FreshView
         var fm = MemoryMarshal.Read<Matrix4x4>(mb);
         var fp = new Vector3(BitConverter.ToSingle(pb[..4]), BitConverter.ToSingle(pb[4..8]), BitConverter.ToSingle(pb[8..12]));
         if (!float.IsFinite(fm.M11) || !float.IsFinite(fp.X)) { Status = "fresh read returned garbage: HUD's cached view"; return; }
-        var now = Stopwatch.GetTimestamp();
-        Push(now, fm, fp);
-        var t = now - (long)(delayMs * Stopwatch.Frequency / 1000);
-        StateAt(t, out m, out pos);
+        m = fm; pos = fp;
         Fresh = true;
         Status = "fresh";
     }
