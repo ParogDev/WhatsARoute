@@ -114,4 +114,9 @@ Answer in one line: what the route now does at that point.
   press gets a new session).
 - Leave nothing half-done: merged (the dispatcher syncs the HUD), or nothing changed. The dispatcher then removes your worktree; one that
   holds uncommitted or unmerged work (submodule commits on no remote included) is kept for a person to look at.
+- **When a step is refused** (a permission or auto-mode check blocks the push, `gh pr create`, `mark_reviewed`, the merge
+  or a PR close), don't retry it another way and don't stop with edits uncommitted: commit the fix on its topic branch,
+  push it if the push is allowed (open the PR if that is), and end. The dispatcher finds the unmerged fix in your
+  worktree and asks the player on the in-game card (Merge it / Close it / Leave it), then does what they chose. Your
+  final message says the fix waits for that answer, in one line, not how to change permissions.
 - End with the final message for the player. Nothing else is shown to them.
