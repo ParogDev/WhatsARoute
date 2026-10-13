@@ -1300,8 +1300,9 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
             // Several can act here (Makoru for the story, Farrow for a side quest, both in town): the nearest leads, so
             // the player standing at the ship isn't sent across town first (2026-10-12). An item to use is nearest of all.
             // Between Main quests the story order beats distance (2026-10-13, Khari Bazaar: "Speak to Asala" (Part 2) lost
-            // to the Hooded One in sight (Part 3) while Asala stood in town out of sight): a later Main quest is not tried
-            // once an earlier one acts here. Side quests still compete with it by distance.
+            // to the Hooded One in sight (Part 3)): a later Main quest is not tried once an earlier one acts here. The first
+            // Main quest that acts stands for the story; side quests compete with it by distance, even when it acts only
+            // through a remembered place. _autoHere holds Main in route.json order (Followed walks the patterns in order).
             var mainLeads = false;
             var bestD = int.MaxValue;
             (string, QuestObjectiveText)? lastTried = null;
