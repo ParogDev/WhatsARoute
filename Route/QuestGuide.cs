@@ -158,7 +158,9 @@ public sealed class QuestGuide
     }
 
     /// <summary>A name as the game shows it ("The Hooded One") matches a sentence's subject ("the Hooded One", "Hooded One").</summary>
-    public static bool NameMatches(string? name, string subject)
+    /// <param name="npc">An NPC: a title before the name matches too ("Sekhema Asala" for "Asala"). Never for monsters, whose
+    /// prefixes are variants ("Rotting Asala").</param>
+    public static bool NameMatches(string? name, string subject, bool npc = false)
     {
         if (string.IsNullOrEmpty(name)) return false;
         static string Bare(string s) => s.StartsWith("The ", StringComparison.OrdinalIgnoreCase) ? s[4..] : s;
@@ -168,8 +170,8 @@ public sealed class QuestGuide
                || (w.Length >= 4 && n.StartsWith(w + ",", StringComparison.OrdinalIgnoreCase))   // "Krutog, the Kin Tyrant"
                || (n.Length >= 4 && w.StartsWith(n + ",", StringComparison.OrdinalIgnoreCase))
                || (n.Length >= 4 && w.StartsWith(n + " ", StringComparison.OrdinalIgnoreCase) && w.Length - n.Length <= 24)    // "Yama the White" vs "Yama"
-               || (w.Length >= 4 && n.EndsWith(" " + w, StringComparison.OrdinalIgnoreCase) && IsTitle(n[..^(w.Length + 1)]));   // "Sekhema Asala" for "Asala" (2026-10-13)
-        // One capitalized word of up to 12 letters before the name: a title, not "Rotting Asala" or "Vastiri Desert Asala".
+               || (npc && w.Length >= 4 && n.EndsWith(" " + w, StringComparison.OrdinalIgnoreCase) && IsTitle(n[..^(w.Length + 1)]));   // "Sekhema Asala" for "Asala" (2026-10-13)
+        // One capitalized word of up to 12 letters before the name: a title, not "Vastiri Desert Asala".
         static bool IsTitle(string p) => p.Length is > 0 and <= 12 && char.IsUpper(p[0]) && p.All(char.IsLetter);
     }
 }

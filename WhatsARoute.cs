@@ -1156,7 +1156,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
     private string NpcPlace(string name)
     {
         foreach (var (npc, places) in _book.Route.NpcPlaces)
-            if (QuestGuide.NameMatches(npc, name))
+            if (QuestGuide.NameMatches(npc, name, npc: true))
                 foreach (var (area, target) in places)
                     if (RouteBook.Like(_areaRaw, area)) return "|" + target;
         return "";
