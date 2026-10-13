@@ -13,6 +13,9 @@
     "Act4KaruiElder", "HallsOfTheDeadBlankTattoo*", "Act4RescueMedicineWoman", "Act4DeliriumUnlock", "Act4KillSiren", "Act4ScourgeSkies", "Act4KillPrisoner*", "Act4KillGoblinGiant", "Act4VisitArastas", "A4BossFightPhase1To2ChaseLocalQuest",
     "InterludePart2ScorpionAndWorm", "InterludePart3YetiQuadrilla"
   ],
+  "Choices": [
+    { "Quest": "InterludePart2", "States": [32], "Option": "Travel to the Vastiri Desert", "Note": "Verified live 2026-10-13: 32 = 'Speak to the Hooded One to travel to the Bazaar.' The Hooded One offers Travel to Ogham, Travel to the Vastiri Desert, Travel to Mount Kriar; Parts 1 and 3 name their line already (Ogham, Mount Kriar)" }
+  ],
   "NpcPlaces": {
     "Makoru": { "G4_town": "tile:*KalguurShip_Town*" }
   },
