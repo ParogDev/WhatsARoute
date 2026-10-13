@@ -103,6 +103,23 @@ public sealed class RouteFile
     /// as its fallback, after the NPC itself and the places seen this visit.
     /// </summary>
     public Dictionary<string, Dictionary<string, string>> NpcPlaces { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// The NPC dialogue line to click when a quest's "Speak to X to travel to Y" names Y differently from X's dialogue
+    /// (InterludePart2: "the Bazaar", the Hooded One's line "Travel to the Vastiri Desert"). Without an entry the line is
+    /// "Travel to Y" as the text writes it.
+    /// </summary>
+    public List<DialogChoice> Choices { get; set; } = new();
+}
+
+/// <summary>A dialogue line to click for a quest in these states: named on the card, framed while the dialogue is open.</summary>
+public sealed class DialogChoice
+{
+    /// <summary>Quest id or pattern.</summary>
+    public string Quest { get; set; } = "";
+    public int[]? States { get; set; }
+    /// <summary>The line as the dialogue shows it ("Travel to the Vastiri Desert").</summary>
+    public string Option { get; set; } = "";
+    public string? Note { get; set; }
 }
 
 /// <summary>An item to right-click in the inventory once you have it (a permanent buff), by metadata path part.</summary>

@@ -32,6 +32,9 @@ public sealed class RouteStateDto
     public List<QuestReadDto> QuestReads { get; set; } = new();
     /// <summary>The quest whose own text leads right now (route.json Follow, or a Quests entry with Target "quest"), and how.</summary>
     public string? QuestText { get; set; }
+    /// <summary>The NPC dialogue line to click for that quest ("Travel to the Vastiri Desert"), and whether it is framed now.</summary>
+    public string? DialogChoice { get; set; }
+    public bool DialogChoiceShown { get; set; }
     /// <summary>Objective rules that failed to load (objective-types.json), else null.</summary>
     public string? RulesWhy { get; set; }
     /// <summary>A heads-up capture running now (F7): its intent and seconds so far.</summary>

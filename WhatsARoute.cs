@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Numerics;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using ExileCore2;
@@ -1007,6 +1008,53 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         HighlightRect(new Vector2(r.X, r.Y), new Vector2(r.X + r.Width, r.Y + r.Height), core, glow, time, "Right-click", below: false);
     }
 
+    private string? _choice;   // the NPC dialogue line to click for the leading Talk objective ("Travel to the Vastiri Desert")
+    private ExileCore2.PoEMemory.Element? _choiceLine;   // that line in the open dialogue
+    private double _nextChoiceScan;
+    private static readonly Regex TravelVia = new(@"\bto travel to (.+?)[.!]?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex Tags = new(@"<[^>]*>|[{}]", RegexOptions.Compiled);
+
+    /// <summary>
+    /// The dialogue line a Talk objective needs clicked: route.json Choices for the quest's state (named = true: the card
+    /// says it), else "Travel to Y" from "Speak to X to travel to Y" (the card's sentence already says it); null otherwise.
+    /// </summary>
+    private string? ChoiceFor((string Quest, QuestObjectiveText Read) a, out bool named)
+    {
+        named = false;
+        var st = _quests.TryGetValue(a.Quest, out var s) ? s : -1;
+        foreach (var c in _book.Route.Choices)
+            if (c.Option.Length > 0 && RouteBook.Like(a.Quest, c.Quest) && (c.States is not { Length: > 0 } || Array.IndexOf(c.States, st) >= 0))
+            {
+                named = true;
+                return c.Option;
+            }
+        var m = TravelVia.Match(a.Read.Sentence.Trim());
+        return m.Success ? "Travel to " + m.Groups[1].Value.Trim() : null;
+    }
+
+    private static string LineKey(string? text) => Tags.Replace(text ?? "", "").Trim().TrimEnd('.', '!', ' ');
+
+    /// <summary>
+    /// The line to click, framed in the open NPC dialogue (any NPC: the line's own words decide). Looked up 4x per second
+    /// while the dialogue is open; its rect is read every frame so it follows the panel.
+    /// </summary>
+    private void DrawChoiceHighlight(Vector3 core, Vector3 glow, double time)
+    {
+        var d = GameController.IngameState.IngameUi.NpcDialog;
+        if (d is not { IsVisible: true }) { _choiceLine = null; return; }
+        if (time >= _nextChoiceScan || _choiceLine is not { IsValid: true, IsVisible: true })
+        {
+            _nextChoiceScan = time + 0.25;
+            _choiceLine = null;
+            var want = LineKey(_choice);
+            foreach (var l in d.NpcLines ?? [])
+                if (l != null && string.Equals(LineKey(l.Text), want, StringComparison.OrdinalIgnoreCase)) { _choiceLine = l.Element; break; }
+        }
+        if (_choiceLine == null) return;
+        var r = _choiceLine.GetClientRect();
+        HighlightRect(new Vector2(r.X - 4, r.Y - 2), new Vector2(r.X + r.Width + 4, r.Y + r.Height + 2), core, glow, time, "Click", below: false);
+    }
+
     /// <summary>A UI thing to click: a pulsing frame with a soft halo and a hint above it (or below, near the screen's top).</summary>
     private static void HighlightRect(Vector2 min, Vector2 max, Vector3 core, Vector3 glow, double time, string hint, bool below)
     {
@@ -1195,6 +1243,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         _textOnly = false;
         _shipReturn = false;
         _sailTo = null;
+        _choice = null;
         // An agent's route supersedes the normal one while it runs (WhatsARoute.AgentRoute.cs); the normal one is only paused.
         switch (AgentObjective(cell, out spec))
         {
@@ -1269,6 +1318,13 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
                         _stepIndex = -1;
                         spec = autoSpec!;
                         _targetSpec = spec;
+                        if (auto.Read.Kind == ObjectiveKind.Talk && ChoiceFor(auto, out var named) is { } choice)
+                        {
+                            _choice = choice;
+                            // The text's place is not on the NPC's lines (2026-10-13, "travel to the Bazaar" while the Hooded
+                            // One offers Ogham, the Vastiri Desert and Mount Kriar): the card names the line to click.
+                            if (named) _resolved.Label = $"Speak to {auto.Read.Subject}: choose \"{choice}\"";
+                        }
                         goto Resolved;   // AutoObjective resolved it, label included
                 }
         }
@@ -1536,6 +1592,8 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         Glow.Theme(Settings.World, _frame.Detected, out var fCore, out var fGlow);
         AgentColours(ref fCore, ref fGlow, time);   // an agent route on the card: the owner's hue
         if (_useItem) DrawUseHighlight(core, glow, time);   // before the big-panel check: the inventory is one
+        if (_choice != null) DrawChoiceHighlight(core, glow, time);   // the NPC dialogue is one too
+        else _choiceLine = null;
         if (BigPanelOpen()) return;
         if (_shipReturn) DrawShipHighlight(core, glow, time);
         var avoidUi = Settings.World.AvoidGameUi.Value;
@@ -1789,7 +1847,9 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
             var o = _book.Guide.Read(text);
             dto.QuestReads.Add(new QuestReadDto { Quest = id, State = st, Text = text, Kind = o.Kind.ToString(), Subject = o.Subject, AreaName = o.AreaName });
         }
-        if (_auto is { } au) dto.QuestText = $"{au.Quest}: {au.Read.Kind}{(au.Read.Subject != null ? " " + au.Read.Subject : "")}{(au.Read.AreaName != null ? " in " + au.Read.AreaName : "")} ('{au.Read.Sentence}')";
+        dto.DialogChoice = _choice;
+        dto.DialogChoiceShown = _choiceLine != null;
+        if (_auto is { } au) dto.QuestText =$"{au.Quest}: {au.Read.Kind}{(au.Read.Subject != null ? " " + au.Read.Subject : "")}{(au.Read.AreaName != null ? " in " + au.Read.AreaName : "")} ('{au.Read.Sentence}')";
         dto.RulesWhy = _book.Guide.Why;
         if (_capture is { } cap) dto.HeadsUp = $"{cap.Intent}{(cap.Note != null ? ": " + cap.Note : "")} ({_clock.Elapsed.TotalSeconds - cap.StartedAt:0} s)";
         dto.TravelTo = _resolved.TravelTo;
