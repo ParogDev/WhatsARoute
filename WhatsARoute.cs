@@ -897,22 +897,29 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
     private double _carriedAt = -1;
     // Each carried item's path (and quest name) by the game's inventory slot that holds it: (slot address, slot Version).
     // Reading an inventory's Items builds a fresh Entity per item (~19 KB each: 612 KB and ~450 us per refresh for 40 items
-    // in 117 inventories, measured live 2026-10-13), so an item is built once, when its slot first shows up. Empty
-    // inventories (ItemCount 0) are skipped: their slot map alone cost ~1.4 KB each.
-    private Dictionary<(long slot, int version), (string path, string? quest)> _carriedSlots = new(), _carriedSlotsNext = new();
+    // in 117 inventories, measured live 2026-10-13), so an item is built once, when its slot first shows up. Every
+    // inventory's slot map is read, as Items does: ItemCount is not trusted to say an inventory is empty (it can lag the
+    // slot map, e.g. right after an area load). A quest item whose Base name can't be read yet keeps its path-tail name
+    // and is read again after QuestNameRetrySec, not every second (each retry builds the ~19 KB Entity).
+    private Dictionary<(long slot, int version), (string path, string? quest, double retryAt)> _carriedSlots = new(), _carriedSlotsNext = new();
     private readonly List<string> _carriedCheck = new();
     private readonly List<(string path, string name)> _carriedQuestCheck = new();
     private double _carriedFullAt = double.NegativeInfinity;
-    private int _carriedMismatches;
-    private string? _carriedCacheBroken;   // the slot cache disagreed with a full read three times: full reads from then on
-    private const double CarriedFullEverySec = 60;
+    private int _carriedMismatches;        // consecutive checks where even a freshly rebuilt cache disagreed with the full read
+    private int _carriedRebuilds;          // checks where the cache disagreed and a rebuild fixed it (a slot key reused), this HUD run
+    private string? _carriedCacheBroken;   // why the slot cache is off: full reads until _carriedRetryAt
+    private string? _carriedLastBroken;    // the last reason it went off, kept after a retry turned it back on
+    private double _carriedRetryAt;
+    private const double CarriedFullEverySec = 60, CarriedRetryAfterSec = 300, QuestNameRetrySec = 10;
 
     /// <summary>
     /// The inventories' item paths (and the quest items' names), read at most once a second, from the slot cache. Once a
     /// minute the full read (every inventory's Items, as before the cache) answers instead and the cache is compared with
-    /// it: three disagreeing checks mean the slot key or ItemCount no longer says what it did (a HUD update), so the cache
-    /// is dropped, logged and named in GetState (Timings.CarriedCheck). One disagreement can be an item moving between
-    /// the two reads.
+    /// it, as multisets (callers only ask "carrying X?"). A disagreement can be a slot key reused by another item: the
+    /// cache is rebuilt from scratch and compared again. Three checks in a row that still disagree, or a cached read that
+    /// throws, mean the slot key no longer says what it did (a HUD update): the cache is dropped, logged and named in
+    /// GetState (Timings.CarriedCheck), and tried again after CarriedRetryAfterSec. One disagreement can be an item moving
+    /// between the two reads; a matching check resets the count.
     /// </summary>
     private void RefreshCarried()
     {
@@ -924,23 +931,92 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         try
         {
             var inventories = GameController.IngameState.Data.ServerData.PlayerInventories;
-            if (_carriedCacheBroken != null) { ReadCarriedFull(inventories, _carried, _carriedQuest); return; }
-            if (now - _carriedFullAt < CarriedFullEverySec) { ReadCarriedCached(inventories, _carried, _carriedQuest); return; }
+            if (_carriedCacheBroken != null)
+            {
+                if (now < _carriedRetryAt) { ReadCarriedFull(inventories, _carried, _carriedQuest); return; }
+                _carriedLastBroken = _carriedCacheBroken;   // cool-down over: the next read checks the cache again
+                _carriedCacheBroken = null;
+                _carriedMismatches = 0;
+                _carriedFullAt = double.NegativeInfinity;
+            }
+            if (now - _carriedFullAt < CarriedFullEverySec)
+            {
+                if (TryReadCarriedCached(inventories, _carried, _carriedQuest, now)) return;
+                ReadCarriedFull(inventories, _carried, _carriedQuest);   // the cached read threw: this call reads in full
+                return;
+            }
             _carriedFullAt = now;
             ReadCarriedFull(inventories, _carried, _carriedQuest);
-            _carriedCheck.Clear();
-            _carriedQuestCheck.Clear();
-            ReadCarriedCached(inventories, _carriedCheck, _carriedQuestCheck);
-            if (_carried.SequenceEqual(_carriedCheck) && _carriedQuest.SequenceEqual(_carriedQuestCheck)) return;
+            if (!TryReadCarriedCached(inventories, _carriedCheck, _carriedQuestCheck, now)) return;
+            if (SameCarried()) { _carriedMismatches = 0; return; }
+            _carriedSlots.Clear();   // a reused slot key? every Entity built afresh, compared again
+            if (!TryReadCarriedCached(inventories, _carriedCheck, _carriedQuestCheck, now)) return;
+            if (SameCarried()) { _carriedRebuilds++; _carriedMismatches = 0; return; }
             if (++_carriedMismatches < 3) return;
-            var missing = _carried.Except(_carriedCheck).FirstOrDefault();
-            var extra = _carriedCheck.Except(_carried).FirstOrDefault();
-            _carriedCacheBroken = $"slot cache (slot Address + Version, inventories with ItemCount > 0) read {_carriedCheck.Count} items, " +
-                                  $"the full Items read {_carried.Count} (missing {missing ?? "none"}, extra {extra ?? "none"}; {_carriedMismatches} disagreeing checks)";
-            _carriedSlots.Clear();
-            LogError($"WhatsARoute: carried items are read in full from now on: {_carriedCacheBroken}", 10);
+            BreakCarriedCache($"slot cache (slot Address + Version) read {_carriedCheck.Count} items, the full Items read {_carried.Count} " +
+                              $"({CarriedDifference()}; {_carriedMismatches} disagreeing checks in a row, each after a rebuild)", now);
         }
         catch (Exception ex) { _why = $"ServerData.PlayerInventories: {ex.Message}"; }
+    }
+
+    private string CarriedCheckState() =>
+        _carriedCacheBroken != null ? $"{_carriedCacheBroken} (retry in {Math.Max(0, _carriedRetryAt - _clock.Elapsed.TotalSeconds):0} s)"
+        : _carriedLastBroken != null ? $"slot cache (back on after: {_carriedLastBroken}; {_carriedRebuilds} rebuilds)"
+        : _carriedRebuilds > 0 ? $"slot cache ({_carriedRebuilds} rebuilds)" : "slot cache";
+
+    private void BreakCarriedCache(string why, double now)
+    {
+        _carriedCacheBroken = why;
+        _carriedRetryAt = now + CarriedRetryAfterSec;
+        _carriedSlots.Clear();
+        _carriedSlotsNext.Clear();
+        LogError($"WhatsARoute: carried items are read in full for {CarriedRetryAfterSec:0} s: {why}", 10);
+    }
+
+    /// <summary>The full read and the cached one hold the same paths and quest items, in any order.</summary>
+    private bool SameCarried() =>
+        _carried.Count == _carriedCheck.Count && _carriedQuest.Count == _carriedQuestCheck.Count
+        && _carried.OrderBy(p => p, StringComparer.Ordinal).SequenceEqual(_carriedCheck.OrderBy(p => p, StringComparer.Ordinal))
+        && _carriedQuest.OrderBy(q => q.path, StringComparer.Ordinal).ThenBy(q => q.name, StringComparer.Ordinal)
+            .SequenceEqual(_carriedQuestCheck.OrderBy(q => q.path, StringComparer.Ordinal).ThenBy(q => q.name, StringComparer.Ordinal));
+
+    /// <summary>What told the full read and the cached one apart, as a multiset difference (the comparison SameCarried makes).</summary>
+    private string CarriedDifference()
+    {
+        static List<T> Minus<T>(List<T> a, List<T> b) where T : notnull
+        {
+            var left = b.GroupBy(x => x).ToDictionary(g => g.Key, g => g.Count());
+            var rest = new List<T>();
+            foreach (var x in a)
+                if (left.TryGetValue(x, out var n) && n > 0) left[x] = n - 1;
+                else rest.Add(x);
+            return rest;
+        }
+        var missing = Minus(_carried, _carriedCheck);
+        var extra = Minus(_carriedCheck, _carried);
+        if (missing.Count > 0 || extra.Count > 0)
+            return $"missing {missing.Count} (first {missing.FirstOrDefault() ?? "none"}), extra {extra.Count} (first {extra.FirstOrDefault() ?? "none"})";
+        var qMissing = Minus(_carriedQuest, _carriedQuestCheck).FirstOrDefault();
+        var qExtra = Minus(_carriedQuestCheck, _carriedQuest).FirstOrDefault();
+        return $"same paths, quest names differ: full read ({qMissing.path}, {qMissing.name}), cache ({qExtra.path}, {qExtra.name})";
+    }
+
+    /// <summary>
+    /// ReadCarriedCached, guarded: a cached read that throws turns the cache off (BreakCarriedCache) and leaves the lists
+    /// empty for a full read; the half-built next slot map is dropped with it.
+    /// </summary>
+    private bool TryReadCarriedCached(IList<InventoryHolder> inventories, List<string> paths, List<(string path, string name)> quest, double now)
+    {
+        paths.Clear();
+        quest.Clear();
+        try { ReadCarriedCached(inventories, paths, quest, now); return true; }
+        catch (Exception ex)
+        {
+            paths.Clear();
+            quest.Clear();
+            BreakCarriedCache($"slot cache read threw {ex.GetType().Name}: {ex.Message}", now);
+            return false;
+        }
     }
 
     private static bool IsQuestItem(string path) => path.Contains("/QuestItems/", StringComparison.Ordinal);
@@ -959,32 +1035,27 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
     }
 
     /// <summary>
-    /// The same list from the slot cache: an Entity is built only for a slot not seen on the last read. An entry is kept
-    /// only once complete (a path, and a quest item's Base name), so a not-yet-readable item is asked again next time.
+    /// The same list from the slot cache: an Entity is built only for a slot not seen on the last read, or a quest item
+    /// whose Base name couldn't be read, once its retry time has come (until then it carries its path-tail name).
     /// Items keep Items' order (the slot map's order; checked live 2026-10-13 on all 117 inventories).
     /// </summary>
-    private void ReadCarriedCached(IList<InventoryHolder> inventories, List<string> paths, List<(string path, string name)> quest)
+    private void ReadCarriedCached(IList<InventoryHolder> inventories, List<string> paths, List<(string path, string name)> quest, double now)
     {
         _carriedSlotsNext.Clear();
         foreach (var inv in inventories)
         {
-            if (inv?.Inventory is not { ItemCount: > 0 } si || si.InventorySlotItems is not { } slots) continue;
+            if (inv?.Inventory?.InventorySlotItems is not { } slots) continue;
             foreach (var slot in slots)
             {
                 if (slot == null) continue;
                 var key = (slot.Address, slot.Version);
-                if (!_carriedSlots.TryGetValue(key, out var e))
+                if (!_carriedSlots.TryGetValue(key, out var e) || (e.retryAt > 0 && now >= e.retryAt))
                 {
                     var it = slot.Item;
                     if (it?.Path is not { } p) continue;
-                    var baseName = IsQuestItem(p) ? it.GetComponent<Base>()?.Name : null;
-                    if (IsQuestItem(p) && baseName == null)
-                    {
-                        paths.Add(p);
-                        quest.Add((p, p.Split('/')[^1]));   // not kept: the name is asked again next time
-                        continue;
-                    }
-                    e = (p, baseName);
+                    if (!IsQuestItem(p)) e = (p, null, 0);
+                    else if (it.GetComponent<Base>()?.Name is { } baseName) e = (p, baseName, 0);
+                    else e = (p, p.Split('/')[^1], now + QuestNameRetrySec);
                 }
                 _carriedSlotsNext[key] = e;
                 paths.Add(e.path);
@@ -1656,10 +1727,10 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         for (var i = 0; i < _bigPanels.Count; i++)
         {
             var p = _bigPanels[i];
-            if (p == null) continue;
+            if (p == null || p.Address == 0) continue;   // a freed panel: no struct to read (Elem would read address 0)
             open |= VisibleLocal(p);
             if (!check) { if (open) return true; continue; }
-            if (p.Address == 0 || !mem!.ReadMem<ulong>((IntPtr)(p.Address + PanelFlagsOffset), _panelFlags)) continue;
+            if (!mem!.ReadMem<ulong>((IntPtr)(p.Address + PanelFlagsOffset), _panelFlags)) continue;
             var raw = (_panelFlags[0] & PanelVisibleBit) != 0;
             var vis = VisibleLocal(p);
             if (raw == vis) continue;
@@ -1938,7 +2009,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
                 SightingsScanUs = Math.Round(_scanUs, 1),
                 Goals = _resolved.Goals.Count,
                 PanelCheck = _rawPanelFlagsBroken ?? "raw",
-                CarriedCheck = _carriedCacheBroken ?? "slot cache",
+                CarriedCheck = CarriedCheckState(),
                 Motion = new RouteMotionDto
                 {
                     Smooth = Settings.World.SmoothMotion.Value,

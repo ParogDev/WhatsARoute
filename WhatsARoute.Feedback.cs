@@ -186,11 +186,18 @@ public sealed partial class WhatsARoute
                 if (prop.GetIndexParameters().Length > 0 || !typeof(ExileCore2.PoEMemory.Element).IsAssignableFrom(prop.PropertyType)) continue;
                 if (prop.GetGetMethod() is not { } getter || getter.DeclaringType is not { } declaring) continue;
                 // A getter declared below TUi (on the runtime subclass) binds to its own type and is called through a cast.
-                var get = declaring.IsAssignableFrom(typeof(TUi))
-                    ? Delegate.CreateDelegate(typeof(Func<TUi, ExileCore2.PoEMemory.Element>), getter, throwOnBindFailure: false) as Func<TUi, ExileCore2.PoEMemory.Element>
-                    : typeof(TUi).IsAssignableFrom(declaring)
-                        ? BindSubMethod.MakeGenericMethod(declaring).Invoke(null, new object[] { getter }) as Func<TUi, ExileCore2.PoEMemory.Element>
-                        : null;
+                // A property that won't bind (a constraint MakeGenericMethod rejects, an Invoke that throws) is skipped:
+                // it names nothing, the other panels still bind.
+                Func<TUi, ExileCore2.PoEMemory.Element>? get;
+                try
+                {
+                    get = declaring.IsAssignableFrom(typeof(TUi))
+                        ? Delegate.CreateDelegate(typeof(Func<TUi, ExileCore2.PoEMemory.Element>), getter, throwOnBindFailure: false) as Func<TUi, ExileCore2.PoEMemory.Element>
+                        : typeof(TUi).IsAssignableFrom(declaring)
+                            ? BindSubMethod.MakeGenericMethod(declaring).Invoke(null, new object[] { getter }) as Func<TUi, ExileCore2.PoEMemory.Element>
+                            : null;
+                }
+                catch (Exception) { get = null; }
                 if (get != null) list.Add((Humanise(prop.Name), get));
             }
             var built = list.ToArray();
@@ -200,12 +207,15 @@ public sealed partial class WhatsARoute
 
         private static readonly MethodInfo BindSubMethod = typeof(PanelGetters<TUi>).GetMethod(nameof(BindSub), BindingFlags.NonPublic | BindingFlags.Static)!;
 
-        /// <summary>A getter declared on a subclass of TUi: an open-instance delegate on TSub, called through a cast.</summary>
+        /// <summary>
+        /// A getter declared on a subclass of TUi: an open-instance delegate on TSub. A UI object that isn't a TSub (a
+        /// sibling subclass) has no such panel: null, never a cast exception.
+        /// </summary>
         private static Func<TUi, ExileCore2.PoEMemory.Element>? BindSub<TSub>(MethodInfo getter) where TSub : class, TUi
         {
             if (Delegate.CreateDelegate(typeof(Func<TSub, ExileCore2.PoEMemory.Element>), getter, throwOnBindFailure: false)
                 is not Func<TSub, ExileCore2.PoEMemory.Element> get) return null;
-            return ui => get((TSub)ui);
+            return ui => ui is TSub sub ? get(sub) : null!;
         }
     }
 
