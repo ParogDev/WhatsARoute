@@ -675,7 +675,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         }
         if (here != null && _questObj != here) { _altAreas.Add(RouteBook.FirstOf(_questObj!.Area)); _questObj = here; }
         // The quests whose own words can lead (route.json Main and Follow; a Quests entry with Target "quest" pins its own).
-        _autoHere.Clear(); _autoPlan.Clear();
+        _autoHere.Clear(); _autoPlan.Clear(); _autoMain = 0;
         if (_questObj is { Target: "quest" } qo)
         {
             if (_questTexts.TryGetValue(qo.Quest, out var tx)) { _autoHere.Add((qo.Quest, _book.Guide.Read(tx))); _autoPlan.Add(_autoHere[0]); }
@@ -686,6 +686,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         var side = Followed(_book.Route.Follow);
         var main = Followed(_book.Route.Main);
         _autoHere.AddRange(main); _autoHere.AddRange(side.Where(s => main.All(m => m.Quest != s.Quest)));
+        _autoMain = main.Count;
         _autoPlan.AddRange(main); _autoPlan.AddRange(side.Where(s => main.All(m => m.Quest != s.Quest)));
     }
 
@@ -700,6 +701,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
 
     private readonly Dictionary<string, string> _questTexts = new();   // open quest id -> its state's text
     private readonly List<(string Quest, QuestObjectiveText Read)> _autoHere = new(), _autoPlan = new();
+    private int _autoMain;                                              // _autoHere's first _autoMain entries are route.json Main, in story order
     private (string Quest, QuestObjectiveText Read)? _auto;            // the quest whose text leads now, read as an objective
     private bool _textOnly;                                             // the objective has no place: the card says what to do
 
@@ -1297,16 +1299,23 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
             AutoUse use = AutoUse.No; string? autoSpec = null;
             // Several can act here (Makoru for the story, Farrow for a side quest, both in town): the nearest leads, so
             // the player standing at the ship isn't sent across town first (2026-10-12). An item to use is nearest of all.
+            // Between Main quests the story order beats distance (2026-10-13, Khari Bazaar: "Speak to Asala" (Part 2) lost
+            // to the Hooded One in sight (Part 3) while Asala stood in town out of sight): a later Main quest is not tried
+            // once an earlier one acts here. Side quests still compete with it by distance.
+            var mainLeads = false;
             var bestD = int.MaxValue;
             (string, QuestObjectiveText)? lastTried = null;
-            foreach (var c in _autoHere)
+            for (var i = 0; i < _autoHere.Count; i++)
             {
+                var c = _autoHere[i];
+                if (mainLeads && i < _autoMain) continue;
                 // Only kinds that can act here are tried (each try is a resolve, twice a second).
                 if (c.Read.Kind is not (ObjectiveKind.Talk or ObjectiveKind.PickUp or ObjectiveKind.Use or ObjectiveKind.Click
                     or ObjectiveKind.Defeat or ObjectiveKind.Sail or ObjectiveKind.Travel)) continue;
                 var tried = AutoObjective(c.Read, pending, out var triedSpec, out var acts);
                 lastTried = c;
                 if (tried == AutoUse.No || !acts) continue;
+                if (i < _autoMain) mainLeads = true;
                 var d = tried == AutoUse.UseItem ? 0 : int.MaxValue - 1;
                 foreach (var g in _resolved.Goals) d = Math.Min(d, Math.Max(Math.Abs(g.x - cell.x), Math.Abs(g.y - cell.y)));
                 // Something loaded beats a remembered place or a tile (NpcPlaces): those can be nearer only on paper.
