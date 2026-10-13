@@ -1037,6 +1037,8 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         return m.Success ? "Travel to " + m.Groups[1].Value.Trim() : null;
     }
 
+    private void ResetChoiceLine() { _choiceLine = null; _choiceLineKey = null; _choiceWhy = null; _nextChoiceScan = 0; }
+
     private static string LineKey(string? text) =>
         Spaces.Replace(Tags.Replace(text ?? "", ""), " ").Trim().TrimEnd('.', '!', ' ').ToLowerInvariant();
 
@@ -1048,9 +1050,10 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
     private void DrawChoiceHighlight(Vector3 core, Vector3 glow, double time)
     {
         var d = GameController.IngameState.IngameUi.NpcDialog;
-        if (d is not { IsVisible: true }) { _choiceLine = null; _choiceWhy = null; return; }
+        if (d is not { IsVisible: true }) { ResetChoiceLine(); return; }
         var want = _choiceKeyFor == _choice ? _choiceKey : (_choiceKey = LineKey(_choiceKeyFor = _choice));
-        if ((_choiceLine is not { IsValid: true, IsVisible: true } || _choiceLineKey != want) && time >= _nextChoiceScan)
+        // Rescanned 4x per second even while a line is held: the dialogue may reuse that element for another line.
+        if (time >= _nextChoiceScan || _choiceLine is not { IsValid: true, IsVisible: true } || _choiceLineKey != want)
         {
             _nextChoiceScan = time + 0.25;
             _choiceLine = null;
@@ -1257,6 +1260,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         _shipReturn = false;
         _sailTo = null;
         _choice = null;
+        string? choiceLabel = null;
         // An agent's route supersedes the normal one while it runs (WhatsARoute.AgentRoute.cs); the normal one is only paused.
         switch (AgentObjective(cell, out spec))
         {
@@ -1336,7 +1340,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
                             _choice = choice;
                             // The text's place is not on the NPC's lines (2026-10-13, "travel to the Bazaar" while the Hooded
                             // One offers Ogham, the Vastiri Desert and Mount Kriar): the card names the line to click.
-                            if (named && auto.Read.Subject is { Length: > 0 } who) _resolved.Label = $"Speak to {who}: choose \"{choice}\"";
+                            if (named && auto.Read.Subject is { Length: > 0 } who) choiceLabel = $"Speak to {who}: choose \"{choice}\"";
                         }
                         goto Resolved;   // AutoObjective resolved it, label included
                 }
@@ -1403,6 +1407,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         Resolved:
         if (_stepIndex >= 0 && steps[_stepIndex].Label is { Length: > 0 } label) _resolved.Label = label;
         else if (q?.Label is { Length: > 0 } ql && spec == q.Target) _resolved.Label = ql;
+        if (choiceLabel != null) _resolved.Label = choiceLabel;   // the line to click beats a route.json label naming the place
         if (route && !_agent.OnCard &&!_frame.Detected && !PendingHere(steps) && ShipButton() != null
             && (_resolved.Goals.Count == 0 || _stepIndex >= 0 || _blockedField != null || spec.StartsWith("travel:", StringComparison.Ordinal)))
         {
@@ -1606,7 +1611,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         AgentColours(ref fCore, ref fGlow, time);   // an agent route on the card: the owner's hue
         if (_useItem) DrawUseHighlight(core, glow, time);   // before the big-panel check: the inventory is one
         if (_choice != null) DrawChoiceHighlight(core, glow, time);   // the NPC dialogue is one too
-        else { _choiceLine = null; _choiceWhy = null; }
+        else ResetChoiceLine();
         if (BigPanelOpen()) return;
         if (_shipReturn) DrawShipHighlight(core, glow, time);
         var avoidUi = Settings.World.AvoidGameUi.Value;
