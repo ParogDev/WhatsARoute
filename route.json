@@ -97,7 +97,7 @@
       { "Target": "radar:Boss", "Label": "Oswin, the Dread Warden (Warden's Ledger)" }
     ],
     "P2_1": [
-      { "Target": "radar:5% Maximum Life", "Label": "The Molten Shrine: Molten One's Gift (+5% maximum Life)", "Note": "2026-10-12: Radar's three rows of that name are the forge entrance tiles; the Gift is a quest item (TitansHeart) the quest-item rule and Use pick up. Unverified live" },
+      { "Target": "tile:*P2_1/Titan_Forge*|radar:5% Maximum Life", "Label": "The Molten Shrine: take Molten One's Gift (+5% maximum Life) in the Titan Forge down the Skullmaw Stairway", "DoneFlag": "InterludeP2_1TitansHeadUsed", "Note": "Verified live 2026-10-13 (F8 #1961, #2003): radar:5% Maximum Life is the Skullmaw Stairway entrance on the surface; inside, the stairway is a separate region and the shrine room is the tile P2_1/Titan_Forge.tdt. Nearest reachable goal wins: entrance outside, forge inside. Taking the Gift sets InterludeP2_1TitansHeadHeld, using it sets InterludeP2_1TitansHeadUsed (the step's end; without it the step came back after leaving the forge)" },
       { "Target": "radar:Boss (+2 Passive)", "Label": "Akthi and Anundr (Risu's Book of Specialisation)", "Note": "InterludePart2ScorpionAndWorm (Follow) leads back to Risu once they are dead" }
     ],
     "P2_6": [
