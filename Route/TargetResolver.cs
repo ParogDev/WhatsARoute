@@ -245,8 +245,8 @@ public sealed class TargetResolver
                 // An NPC by the name the game shows ("Makoru", "The Hooded One"): the quest texts name them, not their
                 // metadata. Only one you can talk to now (an intro copy of the same NPC stands untargetable beside it).
                 r.Label = $"Speak to {arg}";
-                Entities(gc, r, EntityType.Npc, e => IsTargetable(e) && QuestGuide.NameMatches(e.RenderName, arg));
-                if (r.Goals.Count == 0) Remembered(r, s => s.Type == nameof(EntityType.Npc) && s.Targetable && QuestGuide.NameMatches(s.Name, arg));
+                Entities(gc, r, EntityType.Npc, e => IsTargetable(e) && QuestGuide.NameMatches(e.RenderName, arg, npc: true));
+                if (r.Goals.Count == 0) Remembered(r, s => s.Type == nameof(EntityType.Npc) && s.Targetable && QuestGuide.NameMatches(s.Name, arg, npc: true));
                 break;
             case "object":
                 // A thing to click by its name ("Fortified Door", "Verisium Anvil", "Hinekora Totem"): not monsters or items.
