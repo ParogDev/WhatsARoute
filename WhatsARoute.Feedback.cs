@@ -176,23 +176,56 @@ public sealed partial class WhatsARoute
     {
         private static (Type type, (string name, Func<TUi, ExileCore2.PoEMemory.Element> get)[] getters)? _cache;
 
+        /// <summary>The Element properties of the last bound UI class that didn't bind, each with why: shown when a panel goes unnamed.</summary>
+        public static IReadOnlyList<string> Unbound { get; private set; } = Array.Empty<string>();
+
         public static (string name, Func<TUi, ExileCore2.PoEMemory.Element> get)[] For(TUi ui)
         {
             var type = ui.GetType();
             if (_cache is { } c && c.type == type) return c.getters;
             var list = new List<(string, Func<TUi, ExileCore2.PoEMemory.Element>)>();
+            var unbound = new List<string>();
             foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
                 if (prop.GetIndexParameters().Length > 0 || !typeof(ExileCore2.PoEMemory.Element).IsAssignableFrom(prop.PropertyType)) continue;
-                // A getter declared below TUi (on the runtime subclass) can't bind to Func<TUi, ...>: it names nothing.
-                if (prop.GetGetMethod() is not { } getter || !getter.DeclaringType!.IsAssignableFrom(typeof(TUi))) continue;
-                if (Delegate.CreateDelegate(typeof(Func<TUi, ExileCore2.PoEMemory.Element>), getter, throwOnBindFailure: false)
-                    is Func<TUi, ExileCore2.PoEMemory.Element> get)
-                    list.Add((Humanise(prop.Name), get));
+                if (prop.GetGetMethod() is not { } getter || getter.DeclaringType is not { } declaring) continue;
+                // A getter declared below TUi (on the runtime subclass) binds to its own type and is called through a cast.
+                // A property that won't bind (a constraint MakeGenericMethod rejects, an Invoke that throws, a delegate
+                // that doesn't fit) is skipped and recorded in Unbound with why: the other panels still bind.
+                Func<TUi, ExileCore2.PoEMemory.Element>? get;
+                try
+                {
+                    get = declaring.IsAssignableFrom(typeof(TUi))
+                        ? Delegate.CreateDelegate(typeof(Func<TUi, ExileCore2.PoEMemory.Element>), getter, throwOnBindFailure: false) as Func<TUi, ExileCore2.PoEMemory.Element>
+                        : typeof(TUi).IsAssignableFrom(declaring)
+                            ? BindSubMethod.MakeGenericMethod(declaring).Invoke(null, new object[] { getter }) as Func<TUi, ExileCore2.PoEMemory.Element>
+                            : null;
+                    if (get == null) unbound.Add($"{declaring.Name}.{prop.Name} (no Func<{declaring.Name}, Element> delegate binds to its getter)");
+                }
+                catch (Exception ex)
+                {
+                    get = null;
+                    unbound.Add($"{declaring.Name}.{prop.Name} ({(ex as TargetInvocationException)?.InnerException?.Message ?? ex.Message})");
+                }
+                if (get != null) list.Add((Humanise(prop.Name), get));
             }
             var built = list.ToArray();
             _cache = (type, built);
+            Unbound = unbound;
             return built;
+        }
+
+        private static readonly MethodInfo BindSubMethod = typeof(PanelGetters<TUi>).GetMethod(nameof(BindSub), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        /// <summary>
+        /// A getter declared on a subclass of TUi: an open-instance delegate on TSub. A UI object that isn't a TSub (a
+        /// sibling subclass) has no such panel: null, never a cast exception.
+        /// </summary>
+        private static Func<TUi, ExileCore2.PoEMemory.Element>? BindSub<TSub>(MethodInfo getter) where TSub : class, TUi
+        {
+            if (Delegate.CreateDelegate(typeof(Func<TSub, ExileCore2.PoEMemory.Element>), getter, throwOnBindFailure: false)
+                is not Func<TSub, ExileCore2.PoEMemory.Element> get) return null;
+            return ui => ui is TSub sub ? get(sub) : null!;
         }
     }
 
@@ -227,8 +260,10 @@ public sealed partial class WhatsARoute
                     catch { /* a property that can't be read now names nothing */ }
                 }
             }
-            return _panelNames.TryGetValue(open.Address, out var found) ? found
-                : $"panel {open.GetType().Name} at {open.Address:X} (no IngameUi property of {ui.GetType().Name} holds it)";
+            if (_panelNames.TryGetValue(open.Address, out var found)) return found;
+            var unbound = PanelGetters<ExileCore2.PoEMemory.MemoryObjects.IngameUIElements>.Unbound;
+            return $"panel {open.GetType().Name} at {open.Address:X} (no IngameUi property of {ui.GetType().Name} holds it" +
+                   (unbound.Count == 0 ? ")" : $"; {unbound.Count} properties didn't bind: {string.Join(", ", unbound.Take(3))}{(unbound.Count > 3 ? ", ..." : "")})");
         }
         catch (Exception ex) { return $"a panel (name not read: {ex.Message})"; }
     }

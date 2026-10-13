@@ -104,6 +104,8 @@ public sealed class RouteTimingsDto
     public int Goals { get; set; }
     /// <summary>How the big-panel check reads the panel flag: "raw" (Flags bit, one read per panel), or why it fell back to IsVisibleLocal.</summary>
     public string? PanelCheck { get; set; }
+    /// <summary>How the carried items are read: "slot cache" (an Entity built only for a new inventory slot), or why it fell back to reading every inventory's Items.</summary>
+    public string? CarriedCheck { get; set; }
     /// <summary>Smooth motion of the world drawings (Rendering/ViewMotion.cs): lag and jitter.</summary>
     public RouteMotionDto Motion { get; set; } = new();
 }
