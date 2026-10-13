@@ -184,15 +184,28 @@ public sealed partial class WhatsARoute
             foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
                 if (prop.GetIndexParameters().Length > 0 || !typeof(ExileCore2.PoEMemory.Element).IsAssignableFrom(prop.PropertyType)) continue;
-                // A getter declared below TUi (on the runtime subclass) can't bind to Func<TUi, ...>: it names nothing.
-                if (prop.GetGetMethod() is not { } getter || !getter.DeclaringType!.IsAssignableFrom(typeof(TUi))) continue;
-                if (Delegate.CreateDelegate(typeof(Func<TUi, ExileCore2.PoEMemory.Element>), getter, throwOnBindFailure: false)
-                    is Func<TUi, ExileCore2.PoEMemory.Element> get)
-                    list.Add((Humanise(prop.Name), get));
+                if (prop.GetGetMethod() is not { } getter || getter.DeclaringType is not { } declaring) continue;
+                // A getter declared below TUi (on the runtime subclass) binds to its own type and is called through a cast.
+                var get = declaring.IsAssignableFrom(typeof(TUi))
+                    ? Delegate.CreateDelegate(typeof(Func<TUi, ExileCore2.PoEMemory.Element>), getter, throwOnBindFailure: false) as Func<TUi, ExileCore2.PoEMemory.Element>
+                    : typeof(TUi).IsAssignableFrom(declaring)
+                        ? BindSubMethod.MakeGenericMethod(declaring).Invoke(null, new object[] { getter }) as Func<TUi, ExileCore2.PoEMemory.Element>
+                        : null;
+                if (get != null) list.Add((Humanise(prop.Name), get));
             }
             var built = list.ToArray();
             _cache = (type, built);
             return built;
+        }
+
+        private static readonly MethodInfo BindSubMethod = typeof(PanelGetters<TUi>).GetMethod(nameof(BindSub), BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        /// <summary>A getter declared on a subclass of TUi: an open-instance delegate on TSub, called through a cast.</summary>
+        private static Func<TUi, ExileCore2.PoEMemory.Element>? BindSub<TSub>(MethodInfo getter) where TSub : class, TUi
+        {
+            if (Delegate.CreateDelegate(typeof(Func<TSub, ExileCore2.PoEMemory.Element>), getter, throwOnBindFailure: false)
+                is not Func<TSub, ExileCore2.PoEMemory.Element> get) return null;
+            return ui => get((TSub)ui);
         }
     }
 

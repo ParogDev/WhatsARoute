@@ -895,8 +895,25 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
     private readonly List<string> _carried = new();
     private readonly List<(string path, string name)> _carriedQuest = new();   // quest items carried: path and base name
     private double _carriedAt = -1;
+    // Each carried item's path (and quest name) by the game's inventory slot that holds it: (slot address, slot Version).
+    // Reading an inventory's Items builds a fresh Entity per item (~19 KB each: 612 KB and ~450 us per refresh for 40 items
+    // in 117 inventories, measured live 2026-10-13), so an item is built once, when its slot first shows up. Empty
+    // inventories (ItemCount 0) are skipped: their slot map alone cost ~1.4 KB each.
+    private Dictionary<(long slot, int version), (string path, string? quest)> _carriedSlots = new(), _carriedSlotsNext = new();
+    private readonly List<string> _carriedCheck = new();
+    private readonly List<(string path, string name)> _carriedQuestCheck = new();
+    private double _carriedFullAt = double.NegativeInfinity;
+    private int _carriedMismatches;
+    private string? _carriedCacheBroken;   // the slot cache disagreed with a full read three times: full reads from then on
+    private const double CarriedFullEverySec = 60;
 
-    /// <summary>The inventories' item paths (and the quest items' names), read at most once a second.</summary>
+    /// <summary>
+    /// The inventories' item paths (and the quest items' names), read at most once a second, from the slot cache. Once a
+    /// minute the full read (every inventory's Items, as before the cache) answers instead and the cache is compared with
+    /// it: three disagreeing checks mean the slot key or ItemCount no longer says what it did (a HUD update), so the cache
+    /// is dropped, logged and named in GetState (Timings.CarriedCheck). One disagreement can be an item moving between
+    /// the two reads.
+    /// </summary>
     private void RefreshCarried()
     {
         var now = _clock.Elapsed.TotalSeconds;
@@ -906,16 +923,75 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         _carriedQuest.Clear();
         try
         {
-            foreach (var inv in GameController.IngameState.Data.ServerData.PlayerInventories)
-                if (inv?.Inventory?.Items is { } items)
-                    foreach (var it in items)
-                    {
-                        if (it?.Path is not { } p) continue;
-                        _carried.Add(p);
-                        if (p.Contains("/QuestItems/", StringComparison.Ordinal)) _carriedQuest.Add((p, it.GetComponent<Base>()?.Name ?? p.Split('/')[^1]));
-                    }
+            var inventories = GameController.IngameState.Data.ServerData.PlayerInventories;
+            if (_carriedCacheBroken != null) { ReadCarriedFull(inventories, _carried, _carriedQuest); return; }
+            if (now - _carriedFullAt < CarriedFullEverySec) { ReadCarriedCached(inventories, _carried, _carriedQuest); return; }
+            _carriedFullAt = now;
+            ReadCarriedFull(inventories, _carried, _carriedQuest);
+            _carriedCheck.Clear();
+            _carriedQuestCheck.Clear();
+            ReadCarriedCached(inventories, _carriedCheck, _carriedQuestCheck);
+            if (_carried.SequenceEqual(_carriedCheck) && _carriedQuest.SequenceEqual(_carriedQuestCheck)) return;
+            if (++_carriedMismatches < 3) return;
+            var missing = _carried.Except(_carriedCheck).FirstOrDefault();
+            var extra = _carriedCheck.Except(_carried).FirstOrDefault();
+            _carriedCacheBroken = $"slot cache (slot Address + Version, inventories with ItemCount > 0) read {_carriedCheck.Count} items, " +
+                                  $"the full Items read {_carried.Count} (missing {missing ?? "none"}, extra {extra ?? "none"}; {_carriedMismatches} disagreeing checks)";
+            _carriedSlots.Clear();
+            LogError($"WhatsARoute: carried items are read in full from now on: {_carriedCacheBroken}", 10);
         }
         catch (Exception ex) { _why = $"ServerData.PlayerInventories: {ex.Message}"; }
+    }
+
+    private static bool IsQuestItem(string path) => path.Contains("/QuestItems/", StringComparison.Ordinal);
+
+    /// <summary>Every inventory's Items, one Entity built per item: the reference read (the code before the slot cache).</summary>
+    private static void ReadCarriedFull(IList<InventoryHolder> inventories, List<string> paths, List<(string path, string name)> quest)
+    {
+        foreach (var inv in inventories)
+            if (inv?.Inventory?.Items is { } items)
+                foreach (var it in items)
+                {
+                    if (it?.Path is not { } p) continue;
+                    paths.Add(p);
+                    if (IsQuestItem(p)) quest.Add((p, it.GetComponent<Base>()?.Name ?? p.Split('/')[^1]));
+                }
+    }
+
+    /// <summary>
+    /// The same list from the slot cache: an Entity is built only for a slot not seen on the last read. An entry is kept
+    /// only once complete (a path, and a quest item's Base name), so a not-yet-readable item is asked again next time.
+    /// Items keep Items' order (the slot map's order; checked live 2026-10-13 on all 117 inventories).
+    /// </summary>
+    private void ReadCarriedCached(IList<InventoryHolder> inventories, List<string> paths, List<(string path, string name)> quest)
+    {
+        _carriedSlotsNext.Clear();
+        foreach (var inv in inventories)
+        {
+            if (inv?.Inventory is not { ItemCount: > 0 } si || si.InventorySlotItems is not { } slots) continue;
+            foreach (var slot in slots)
+            {
+                if (slot == null) continue;
+                var key = (slot.Address, slot.Version);
+                if (!_carriedSlots.TryGetValue(key, out var e))
+                {
+                    var it = slot.Item;
+                    if (it?.Path is not { } p) continue;
+                    var baseName = IsQuestItem(p) ? it.GetComponent<Base>()?.Name : null;
+                    if (IsQuestItem(p) && baseName == null)
+                    {
+                        paths.Add(p);
+                        quest.Add((p, p.Split('/')[^1]));   // not kept: the name is asked again next time
+                        continue;
+                    }
+                    e = (p, baseName);
+                }
+                _carriedSlotsNext[key] = e;
+                paths.Add(e.path);
+                if (e.quest != null) quest.Add((e.path, e.quest));
+            }
+        }
+        (_carriedSlots, _carriedSlotsNext) = (_carriedSlotsNext, _carriedSlots);
     }
 
     /// <summary>An item in your inventories whose metadata path contains <paramref name="part"/>.</summary>
@@ -1520,8 +1596,16 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
     private readonly ulong[] _panelFlags = new ulong[1];
     // Off: live 2026-10-11 in the Jungle Ruins the raw read said a big panel was open while IsVisibleLocal saw none,
     // and the mismatch check never switched it off, so the route and the card drew nothing at all ("nothing shows us
-    // what to click"). IsVisibleLocal is allocation-free already; the raw read comes back only with that fixed.
+    // what to click"). The raw read comes back only with that fixed. Meanwhile the fallback reads the bit from the HUD's
+    // frame-cached struct (VisibleLocal): the same answer as IsVisibleLocal without its 48 B per call (2026-10-13).
     private string? _rawPanelFlagsBroken = PanelFlagsOffsetWhy ?? "raw read off: it reported a big panel open while none was visible (2026-10-11)";
+    /// <summary>
+    /// Element.IsVisibleLocal's answer, read from the same frame-cached element struct (Elem) with a plain mask: the HUD's
+    /// getter allocated 48 B per call (a boxing flag test; 19 panels, 912 B per frame, measured live 2026-10-13) and both
+    /// agreed on all 3020 elements of the UI tree checked that day.
+    /// </summary>
+    private static bool VisibleLocal(ExileCore2.PoEMemory.Element p) => (p.Elem.Flags & GameOffsets2.ElementFlags.IsVisibleLocal) != 0;
+
     private int _panelMismatches;           // checks where the raw read and IsVisibleLocal disagreed, this HUD run
     private double _nextPanelCheck;         // the raw read is checked against IsVisibleLocal once a second
 
@@ -1573,11 +1657,11 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         {
             var p = _bigPanels[i];
             if (p == null) continue;
-            open |= p.IsVisibleLocal;
+            open |= VisibleLocal(p);
             if (!check) { if (open) return true; continue; }
             if (p.Address == 0 || !mem!.ReadMem<ulong>((IntPtr)(p.Address + PanelFlagsOffset), _panelFlags)) continue;
             var raw = (_panelFlags[0] & PanelVisibleBit) != 0;
-            var vis = p.IsVisibleLocal;
+            var vis = VisibleLocal(p);
             if (raw == vis) continue;
             check = false;   // one count per check
             if (++_panelMismatches < 3) continue;
@@ -1854,6 +1938,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
                 SightingsScanUs = Math.Round(_scanUs, 1),
                 Goals = _resolved.Goals.Count,
                 PanelCheck = _rawPanelFlagsBroken ?? "raw",
+                CarriedCheck = _carriedCacheBroken ?? "slot cache",
                 Motion = new RouteMotionDto
                 {
                     Smooth = Settings.World.SmoothMotion.Value,
