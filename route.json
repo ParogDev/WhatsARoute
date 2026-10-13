@@ -124,7 +124,7 @@
       { "Target": "entity:4_7/Objects/BossRoomMinimapIcon|radar:Arena", "UntilDead": "Bird2/MutantBird2NOUltimatum", "Label": "Into the arena: the Scourge of the Skies (weapon piece or Matiki)", "Note": "From route.live.json (F8 fix, 2026-10-12)" }
     ],
     "G4_5_1": [
-      { "Target": "click:JusticeDoorLocked", "DoneFlag": "Act4PrisonKeyUsed", "Label": "Open the Chapel Door with the Chapel Key", "Note": "F8 #1637 (2026-10-13): with Act4PrisonKeyHeld (Metadata/Items/QuestItems/Gallows/Act4/PrisonKey) the next action is the locked door 4_5_2/Objects/JusticeDoorLocked ('Chapel Door'). F8 #1668: QuestFlag Act4PrisonKeyUsed ends it (coming back after the Prisoner it led to the door again)" },
+      { "Target": "click:JusticeDoorLocked", "Carrying": "Act4/PrisonKey", "SkipIfNone": true, "DoneFlag": "Act4PrisonKeyUsed", "Label": "Open the Chapel Door with the Chapel Key", "Note": "F8 #1637 (2026-10-13): with Act4PrisonKeyHeld (Metadata/Items/QuestItems/Gallows/Act4/PrisonKey) the next action is the locked door 4_5_2/Objects/JusticeDoorLocked ('Chapel Door'). F8 #1668: QuestFlag Act4PrisonKeyUsed ends it (coming back after the Prisoner it led to the door again)" },
       { "Target": "radar:Flask buff - Need key", "Label": "Chapel: Goddess of Justice (30% flask recovery; needs the Chapel Key)", "Note": "Research: the Chapel Key drops from monsters here; kill Forael, the Soulkeeper, then click the Goddess of Justice (life or mana flask recovery, changeable)" },
       { "Target": "radar:Dungeon entrance down", "Label": "Solitary Confinement" }
     ],
