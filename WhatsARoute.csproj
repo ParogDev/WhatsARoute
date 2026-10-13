@@ -36,4 +36,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+  <ItemGroup>
+    <!-- Hexile.BridgeExports source generator: [BridgeExport] -> BridgeExports.Register / BridgeExports.Names at compile time.
+         Vendored (built from the scaffolding repo's tools/generators) so this repo builds on its own. -->
+    <Analyzer Include="Analyzers\Hexile.BridgeExports.Generator.dll" />
+  </ItemGroup>
 </Project>
