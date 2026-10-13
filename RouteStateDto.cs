@@ -35,6 +35,8 @@ public sealed class RouteStateDto
     /// <summary>The NPC dialogue line to click for that quest ("Travel to the Vastiri Desert"), and whether it is framed now.</summary>
     public string? DialogChoice { get; set; }
     public bool DialogChoiceShown { get; set; }
+    /// <summary>The dialogue is open and no line matches DialogChoice: the wanted line and the lines it has.</summary>
+    public string? DialogChoiceWhy { get; set; }
     /// <summary>Objective rules that failed to load (objective-types.json), else null.</summary>
     public string? RulesWhy { get; set; }
     /// <summary>A heads-up capture running now (F7): its intent and seconds so far.</summary>
