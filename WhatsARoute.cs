@@ -111,7 +111,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         _feedback.Open(LiveDir);
         _book.Load(DataDir, LiveDir);
         Settings.Route.ReloadRoute.OnPressed = ReloadRoute;
-        GameController.PluginBridge.SaveMethod("WhatsARoute.GetState", (Func<string>)GetStateJson);
+        BridgeExports.Register(this, GameController.PluginBridge); // [BridgeExport] methods: WhatsARoute.GetState
         _bridge.Refresh(GameController.PluginBridge, 0);   // the bridge may load later: Tick looks again every 2 s
         return true;
     }
@@ -1810,6 +1810,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
     private bool StepReached(int i, RouteStep s) =>
         _reachedSteps.Contains(StepKey(s)) || (s.DoneFlag != null && _flags.TryGetValue(s.DoneFlag, out var v) && v);
 
+    [BridgeExport("WhatsARoute.GetState")]
     private string GetStateJson()
     {
         try { return JsonConvert.SerializeObject(BuildState()); }
