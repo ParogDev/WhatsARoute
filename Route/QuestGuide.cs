@@ -167,6 +167,7 @@ public sealed class QuestGuide
         return n.Equals(w, StringComparison.OrdinalIgnoreCase)
                || (w.Length >= 4 && n.StartsWith(w + ",", StringComparison.OrdinalIgnoreCase))   // "Krutog, the Kin Tyrant"
                || (n.Length >= 4 && w.StartsWith(n + ",", StringComparison.OrdinalIgnoreCase))
-               || (n.Length >= 4 && w.StartsWith(n + " ", StringComparison.OrdinalIgnoreCase) && w.Length - n.Length <= 24);   // "Yama the White" vs "Yama"
+               || (n.Length >= 4 && w.StartsWith(n + " ", StringComparison.OrdinalIgnoreCase) && w.Length - n.Length <= 24)    // "Yama the White" vs "Yama"
+               || (w.Length >= 4 && n.EndsWith(" " + w, StringComparison.OrdinalIgnoreCase) && n.Length - w.Length <= 12);    // a title first: "Sekhema Asala" for "Asala" (2026-10-13)
     }
 }
