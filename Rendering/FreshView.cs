@@ -23,7 +23,6 @@ public sealed class FreshView
 {
     private delegate bool RawReadFn(IntPtr address, Span<byte> target);
     private RawReadFn? _raw;
-    private bool _rawTried;
 
     private long _camAddress, _playerRender;
     private int _camOffset = -1, _posOffset = -1;
@@ -66,7 +65,13 @@ public sealed class FreshView
         Fresh = false;
         if (!enabled) { Status = "off"; return; }
         var read = Raw(gc);
-        if (read == null) { Status = "leaf memory backend not reachable: drawing from the HUD's cached view"; return; }
+        if (read == null)
+        {
+            if (_rawStatus == null || !ReferenceEquals(_rawStatusFor, _rawWhy))   // built when the reason changes, not per frame
+            { _rawStatusFor = _rawWhy; _rawStatus = $"leaf memory backend not reachable ({_rawWhy ?? "no reason recorded"}): drawing from the HUD's cached view"; }
+            Status = _rawStatus;
+            return;
+        }
         if (_camOffset < 0 || _camAddress != cam.Address || _playerRender != player.Address)
         {
             _camAddress = cam.Address; _playerRender = player.Address; _histCount = 0; _histHead = 0;
@@ -116,21 +121,73 @@ public sealed class FreshView
         m = last.m; pos = last.pos;
     }
 
+    /// <summary>
+    /// The leaf backend's read, bound once per Memory object: Memory._backend (the HUD's private field, the same link the
+    /// AI Bridge's RawMemory uses) -> the paged backend's inner IMemoryBackend -> IMemoryBackend.TryReadMemory, an interface
+    /// method, so the delegate is a plain interface call (no MethodInfo, no Invoke). Reflection runs only when binding: per frame
+    /// it is a timestamp compare (the Memory object is re-checked once a second). A broken link is named once (TakeBroken,
+    /// which the plugin logs) and the HUD's cached view
+    /// is used; a Memory with no backend yet is "not now" and asked again after RetrySec.
+    /// </summary>
     private RawReadFn? Raw(GameController gc)
     {
-        if (_rawTried) return _raw;
-        _rawTried = true;
+        // Bound: the Memory object is compared once a second, not every frame (its getter is a HUD call).
+        var now = Stopwatch.GetTimestamp();
+        if ((_raw != null || _rawBroken) && now < _rawCheckAt) return _raw;
+        _rawCheckAt = now + RetrySec * Stopwatch.Frequency;
+        var mem = (object?)gc.Memory;
+        if (mem == null) { _raw = null; _rawWhy = "GameController.Memory is null (not now)"; return null; }
+        if (ReferenceEquals(mem, _rawMem) && (_raw != null || _rawBroken || now < _rawRetryAt)) return _raw;
+        _rawMem = mem;
+        _raw = null;
+        _rawBroken = false;
         try
         {
-            const BindingFlags inst = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
-            var mem = (object)gc.Memory;
-            var paged = mem.GetType().GetField("_backend", inst)?.GetValue(mem);
-            var leaf = paged?.GetType().GetFields(inst).FirstOrDefault(f => f.FieldType.Name == "IMemoryBackend")?.GetValue(paged) ?? paged;
-            var m = leaf?.GetType().GetMethod("TryReadMemory", [typeof(IntPtr), typeof(Span<byte>)]);
-            if (leaf != null && m != null) _raw = (RawReadFn)Delegate.CreateDelegate(typeof(RawReadFn), leaf, m);
+            var memType = mem.GetType();
+            var backendField = FieldOn(memType, f => f.Name == "_backend");
+            if (backendField == null) { Break($"{memType.FullName} has no field _backend (HUD update renamed it)"); return null; }
+            if (!typeof(IMemoryBackend).IsAssignableFrom(backendField.FieldType) && backendField.FieldType != typeof(object))
+            { Break($"{memType.Name}._backend is {backendField.FieldType.FullName}, not an IMemoryBackend"); return null; }
+            if (backendField.GetValue(mem) is not IMemoryBackend paged)
+            {
+                _rawWhy = $"{memType.Name}._backend is null (not now)";
+                _rawRetryAt = Stopwatch.GetTimestamp() + RetrySec * Stopwatch.Frequency;
+                return null;
+            }
+            var leaf = paged;
+            if (FieldOn(paged.GetType(), f => f.FieldType == typeof(IMemoryBackend)) is { } inner)
+                leaf = inner.GetValue(paged) as IMemoryBackend ?? paged;
+            else if (paged.GetType().Name.Contains("Paged", StringComparison.Ordinal))
+                // Still reads, through the page cache (allocating pages again): said, never silent.
+                Report($"{paged.GetType().Name} has no inner IMemoryBackend field: reading through its page cache");
+            _raw = leaf.TryReadMemory;
+            _rawWhy = null;
         }
-        catch { _raw = null; }
+        catch (Exception ex) { Break($"binding Memory._backend -> TryReadMemory threw {ex.GetType().Name}: {ex.Message}"); }
         return _raw;
+    }
+
+    private const long RetrySec = 1;
+    private object? _rawMem;
+    private bool _rawBroken;
+    private long _rawRetryAt, _rawCheckAt;
+    private string? _rawWhy;
+    private string? _brokenReport;
+    private string? _rawStatus, _rawStatusFor;
+
+    /// <summary>A broken link, once per binding; the plugin logs it (TakeBroken).</summary>
+    public string? TakeBroken() { var b = _brokenReport; _brokenReport = null; return b; }
+
+    private void Break(string why) { _rawBroken = true; _raw = null; _rawWhy = why; Report(why); }
+    private void Report(string why) => _brokenReport = $"FreshView: {why}; the route draws from the HUD's cached view";
+
+    /// <summary>The first instance field (any visibility, base classes included) matching pred.</summary>
+    private static FieldInfo? FieldOn(Type? t, Func<FieldInfo, bool> pred)
+    {
+        const BindingFlags inst = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.DeclaredOnly;
+        for (; t != null; t = t.BaseType)
+            if (t.GetFields(inst).FirstOrDefault(pred) is { } f) return f;
+        return null;
     }
 
     private static int FindMatrix(ReadOnlySpan<byte> buf, in Matrix4x4 want)

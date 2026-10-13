@@ -168,8 +168,39 @@ public sealed partial class WhatsARoute
     private long _panelNamesUi;
 
     /// <summary>
+    /// The IngameUi properties that hold an Element, as (humanised name, open-instance getter delegate): resolved by
+    /// reflection once per IngameUi class (a HUD update can change the class, never within a run), then called as plain
+    /// delegates (CreateDelegate: cheap to bind, unlike compiling an expression per property).
+    /// </summary>
+    private static class PanelGetters<TUi> where TUi : class
+    {
+        private static (Type type, (string name, Func<TUi, ExileCore2.PoEMemory.Element> get)[] getters)? _cache;
+
+        public static (string name, Func<TUi, ExileCore2.PoEMemory.Element> get)[] For(TUi ui)
+        {
+            var type = ui.GetType();
+            if (_cache is { } c && c.type == type) return c.getters;
+            var list = new List<(string, Func<TUi, ExileCore2.PoEMemory.Element>)>();
+            foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (prop.GetIndexParameters().Length > 0 || !typeof(ExileCore2.PoEMemory.Element).IsAssignableFrom(prop.PropertyType)) continue;
+                // A getter declared below TUi (on the runtime subclass) can't bind to Func<TUi, ...>: it names nothing.
+                if (prop.GetGetMethod() is not { } getter || !getter.DeclaringType!.IsAssignableFrom(typeof(TUi))) continue;
+                if (Delegate.CreateDelegate(typeof(Func<TUi, ExileCore2.PoEMemory.Element>), getter, throwOnBindFailure: false)
+                    is Func<TUi, ExileCore2.PoEMemory.Element> get)
+                    list.Add((Humanise(prop.Name), get));
+            }
+            var built = list.ToArray();
+            _cache = (type, built);
+            return built;
+        }
+    }
+
+    /// <summary>
     /// The open big panel's name (the bridge's HlBigPanels idea: the NPC dialogue, IngameUi.LargePanels, FullscreenPanels).
-    /// The name is the IngameUi property that holds the panel, mapped once per UI object by reflection (only at an F8 press).
+    /// The name is the IngameUi property that holds the panel: the getters are compiled once per IngameUi class
+    /// (PanelGetters), the address -> name map is built once per UI object and again when the open panel isn't in it
+    /// (a panel element the game recreated), so a press on a known panel does no reflection and no getter calls.
     /// </summary>
     private string? BigPanelName()
     {
@@ -183,21 +214,21 @@ public sealed partial class WhatsARoute
                 if (p is { Address: not 0, IsVisibleLocal: true }) { open = p; break; }
             if (open == null) return null;
             _composePanelEl = open;
-            if (_panelNames == null || _panelNamesUi != ui.Address)
+            if (_panelNames == null || _panelNamesUi != ui.Address || !_panelNames.ContainsKey(open.Address))
             {
                 _panelNamesUi = ui.Address;
                 _panelNames = new Dictionary<long, string>();
-                foreach (var prop in ui.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                foreach (var (name, get) in PanelGetters<ExileCore2.PoEMemory.MemoryObjects.IngameUIElements>.For(ui))
                 {
-                    if (prop.GetIndexParameters().Length > 0 || !typeof(ExileCore2.PoEMemory.Element).IsAssignableFrom(prop.PropertyType)) continue;
                     try
                     {
-                        if (prop.GetValue(ui) is ExileCore2.PoEMemory.Element e && e.Address != 0) _panelNames.TryAdd(e.Address, Humanise(prop.Name));
+                        if (get(ui) is { Address: not 0 } e) _panelNames.TryAdd(e.Address, name);
                     }
                     catch { /* a property that can't be read now names nothing */ }
                 }
             }
-            return _panelNames.TryGetValue(open.Address, out var name) ? name : $"panel {open.GetType().Name} at {open.Address:X}";
+            return _panelNames.TryGetValue(open.Address, out var found) ? found
+                : $"panel {open.GetType().Name} at {open.Address:X} (no IngameUi property of {ui.GetType().Name} holds it)";
         }
         catch (Exception ex) { return $"a panel (name not read: {ex.Message})"; }
     }

@@ -1641,6 +1641,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         // two game frames (smooth motion, ViewMotion) or as of DelayMs ago.
         _fresh.Sample(GameController, pr, Settings.World.DelayMs.Value, Settings.World.FreshView.Value, Settings.World.SmoothMotion.Value,
             out var m, out var half, out var player);
+        if (_fresh.TakeBroken() is { } freshBroken) LogError(freshBroken, 10);   // a FreshView link broke: named once
         var disp = ImGui.GetIO().DisplaySize;
         var largeMapEl = GameController.IngameState.IngameUi.Map.LargeMap;
         if (_largeMap == null || _largeMap.Address != largeMapEl.Address) _largeMap = largeMapEl.AsObject<SubMap>();
