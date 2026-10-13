@@ -124,11 +124,13 @@
       { "Target": "entity:4_7/Objects/BossRoomMinimapIcon|radar:Arena", "UntilDead": "Bird2/MutantBird2NOUltimatum", "Label": "Into the arena: the Scourge of the Skies (weapon piece or Matiki)", "Note": "From route.live.json (F8 fix, 2026-10-12)" }
     ],
     "G4_5_1": [
+      { "Target": "click:JusticeDoorLocked", "DoneFlag": "Act4PrisonKeyUsed", "Label": "Open the Chapel Door with the Chapel Key", "Note": "F8 #1637 (2026-10-13): with Act4PrisonKeyHeld (Metadata/Items/QuestItems/Gallows/Act4/PrisonKey) the next action is the locked door 4_5_2/Objects/JusticeDoorLocked ('Chapel Door'). F8 #1668: QuestFlag Act4PrisonKeyUsed ends it (coming back after the Prisoner it led to the door again)" },
       { "Target": "radar:Flask buff - Need key", "Label": "Chapel: Goddess of Justice (30% flask recovery; needs the Chapel Key)", "Note": "Research: the Chapel Key drops from monsters here; kill Forael, the Soulkeeper, then click the Goddess of Justice (life or mana flask recovery, changeable)" },
       { "Target": "radar:Dungeon entrance down", "Label": "Solitary Confinement" }
     ],
     "G4_5_2": [
-      { "Target": "radar:Boss", "Label": "Open the Fortified Door: the Prisoner (fire the ballista when he kneels)" }
+      { "Target": "click:4_5_2/Objects/PrisonBossDoorLever", "SkipIfNone": true, "DoneFlag": "G4_5_2PrisonerBossKilled", "Label": "Pull the Lever to open the next Fortified Door", "Note": "F8 #1668 (2026-10-13, captured live): PrisonBossDoorLever 'Lever' @557,789 and @675,789 each open a PrisonBossDoor (door=0 -> 1) and turn untargetable; PrisonBossDoorLeverFinal @803,788 appears after the second. The route lost them and showed only 'Find the Heart of the Tribe'. Repeats for each targetable lever (Final included)" },
+      { "Target": "entity:PrisonerBoss/PrisonerBoss|radar:Boss", "UntilDead": "PrisonerBoss/PrisonerBoss", "DoneFlag": "G4_5_2PrisonerBossKilled", "Label": "The Prisoner: fire the ballista when he kneels", "Note": "F8 #1668: monster Metadata/Monsters/PrisonerBoss/PrisonerBoss; QuestFlags G4_5_2PrisonerBossKilled and Act4PrisonerKilled set on the kill (verified live 2026-10-13)" }
     ],
     "G4_1_1": [
       { "Target": "radar:Boss (+2 Passives)", "Label": "Goblin town arena: kill the Blind Beast (+2 Passives)", "Note": "F8 #686 (2026-10-12): Radar row GoblinTownArena_01.tdt; flags name it the Blind Beast (G4_1_1BlindBeast*). Its monster path is not verified yet, so no UntilDead" },
