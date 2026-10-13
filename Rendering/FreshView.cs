@@ -124,8 +124,9 @@ public sealed class FreshView
     /// <summary>
     /// The leaf backend's read, bound once per Memory object: Memory._backend (the HUD's private field, the same link the
     /// AI Bridge's RawMemory uses) -> the paged backend's inner IMemoryBackend -> IMemoryBackend.TryReadMemory, an interface
-    /// method, so the delegate is a plain interface call (no MethodInfo, no Invoke). Reflection runs only here: per frame
-    /// it is one reference compare. A broken link is named once (Broken, which the plugin logs) and the HUD's cached view
+    /// method, so the delegate is a plain interface call (no MethodInfo, no Invoke). Reflection runs only when binding: per frame
+    /// it is a timestamp compare (the Memory object is re-checked once a second). A broken link is named once (TakeBroken,
+    /// which the plugin logs) and the HUD's cached view
     /// is used; a Memory with no backend yet is "not now" and asked again after RetrySec.
     /// </summary>
     private RawReadFn? Raw(GameController gc)
