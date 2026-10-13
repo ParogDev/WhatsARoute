@@ -130,9 +130,13 @@ public sealed class FreshView
     /// </summary>
     private RawReadFn? Raw(GameController gc)
     {
+        // Bound: the Memory object is compared once a second, not every frame (its getter is a HUD call).
+        var now = Stopwatch.GetTimestamp();
+        if ((_raw != null || _rawBroken) && now < _rawCheckAt) return _raw;
+        _rawCheckAt = now + RetrySec * Stopwatch.Frequency;
         var mem = (object?)gc.Memory;
         if (mem == null) { _raw = null; _rawWhy = "GameController.Memory is null (not now)"; return null; }
-        if (ReferenceEquals(mem, _rawMem) && (_raw != null || _rawBroken || Stopwatch.GetTimestamp() < _rawRetryAt)) return _raw;
+        if (ReferenceEquals(mem, _rawMem) && (_raw != null || _rawBroken || now < _rawRetryAt)) return _raw;
         _rawMem = mem;
         _raw = null;
         _rawBroken = false;
@@ -165,7 +169,7 @@ public sealed class FreshView
     private const long RetrySec = 1;
     private object? _rawMem;
     private bool _rawBroken;
-    private long _rawRetryAt;
+    private long _rawRetryAt, _rawCheckAt;
     private string? _rawWhy;
     private string? _brokenReport;
     private string? _rawStatus, _rawStatusFor;
