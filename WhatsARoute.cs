@@ -198,6 +198,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         _goalEntity = null; _goalRender = null; _frame.HasGoalBox = false; _frame.Detected = false; _playerRender = null; _chosenStop = null; _stopShown = -1;
         _doors.Clear(); _doorAhead = null; _doorRender = null; _questItems.Clear();
         _fresh.Reset();
+        ResetCarriedCache();
         _resolver.ResetArea();
         _portalKey = GameKeys.Binding(GameKeys.Config(), "use_portal_scroll");   // the binding is re-read per area (the player may rebind), the path found once
         _areaRaw = area?.Area?.RawName ?? "";
@@ -959,6 +960,19 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         catch (Exception ex) { _why = $"ServerData.PlayerInventories: {ex.Message}"; }
     }
 
+    /// <summary>
+    /// Area change: slot addresses (and their Versions) may be reused for other items once the game rebuilds the
+    /// inventories, so the slot cache, its pending quest-name retries and the disagreement count start over. A cache
+    /// already turned off keeps its cool-down: a broken key stays broken across areas.
+    /// </summary>
+    private void ResetCarriedCache()
+    {
+        _carriedSlots.Clear();
+        _carriedSlotsNext.Clear();
+        _carriedMismatches = 0;
+        _carriedAt = -1;
+    }
+
     private string CarriedCheckState() =>
         _carriedCacheBroken != null ? $"{_carriedCacheBroken} (retry in {Math.Max(0, _carriedRetryAt - _clock.Elapsed.TotalSeconds):0} s)"
         : _carriedLastBroken != null ? $"slot cache (back on after: {_carriedLastBroken}; {_carriedRebuilds} rebuilds)"
@@ -973,20 +987,21 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         LogError($"WhatsARoute: carried items are read in full for {CarriedRetryAfterSec:0} s: {why}", 10);
     }
 
-    /// <summary>The full read and the cached one hold the same paths and quest items, in any order.</summary>
+    /// <summary>
+    /// The full read and the cached one hold the same paths, in any order. Paths only: the quest items follow from the
+    /// paths, and a quest name the cache is still waiting to read (path-tail fallback, retried later) is not a broken key.
+    /// </summary>
     private bool SameCarried() =>
-        _carried.Count == _carriedCheck.Count && _carriedQuest.Count == _carriedQuestCheck.Count
-        && _carried.OrderBy(p => p, StringComparer.Ordinal).SequenceEqual(_carriedCheck.OrderBy(p => p, StringComparer.Ordinal))
-        && _carriedQuest.OrderBy(q => q.path, StringComparer.Ordinal).ThenBy(q => q.name, StringComparer.Ordinal)
-            .SequenceEqual(_carriedQuestCheck.OrderBy(q => q.path, StringComparer.Ordinal).ThenBy(q => q.name, StringComparer.Ordinal));
+        _carried.Count == _carriedCheck.Count
+        && _carried.OrderBy(p => p, StringComparer.Ordinal).SequenceEqual(_carriedCheck.OrderBy(p => p, StringComparer.Ordinal));
 
-    /// <summary>What told the full read and the cached one apart, as a multiset difference (the comparison SameCarried makes).</summary>
+    /// <summary>What told the full read and the cached one apart, as a multiset difference of paths (what SameCarried compares).</summary>
     private string CarriedDifference()
     {
-        static List<T> Minus<T>(List<T> a, List<T> b) where T : notnull
+        static List<string> Minus(List<string> a, List<string> b)
         {
-            var left = b.GroupBy(x => x).ToDictionary(g => g.Key, g => g.Count());
-            var rest = new List<T>();
+            var left = b.GroupBy(x => x, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+            var rest = new List<string>();
             foreach (var x in a)
                 if (left.TryGetValue(x, out var n) && n > 0) left[x] = n - 1;
                 else rest.Add(x);
@@ -994,11 +1009,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         }
         var missing = Minus(_carried, _carriedCheck);
         var extra = Minus(_carriedCheck, _carried);
-        if (missing.Count > 0 || extra.Count > 0)
-            return $"missing {missing.Count} (first {missing.FirstOrDefault() ?? "none"}), extra {extra.Count} (first {extra.FirstOrDefault() ?? "none"})";
-        var qMissing = Minus(_carriedQuest, _carriedQuestCheck).FirstOrDefault();
-        var qExtra = Minus(_carriedQuestCheck, _carriedQuest).FirstOrDefault();
-        return $"same paths, quest names differ: full read ({qMissing.path}, {qMissing.name}), cache ({qExtra.path}, {qExtra.name})";
+        return $"missing {missing.Count} (first {missing.FirstOrDefault() ?? "none"}), extra {extra.Count} (first {extra.FirstOrDefault() ?? "none"})";
     }
 
     /// <summary>
@@ -1049,11 +1060,16 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
             {
                 if (slot == null) continue;
                 var key = (slot.Address, slot.Version);
-                if (!_carriedSlots.TryGetValue(key, out var e) || (e.retryAt > 0 && now >= e.retryAt))
+                var known = _carriedSlots.TryGetValue(key, out var e);
+                if (!known || (e.retryAt > 0 && now >= e.retryAt))
                 {
                     var it = slot.Item;
-                    if (it?.Path is not { } p) continue;
-                    if (!IsQuestItem(p)) e = (p, null, 0);
+                    if (it?.Path is not { } p)
+                    {
+                        if (!known) continue;                         // nothing readable yet, nothing known: as Items skips it
+                        e.retryAt = now + QuestNameRetrySec;          // a failed retry keeps the entry it had
+                    }
+                    else if (!IsQuestItem(p)) e = (p, null, 0);
                     else if (it.GetComponent<Base>()?.Name is { } baseName) e = (p, baseName, 0);
                     else e = (p, p.Split('/')[^1], now + QuestNameRetrySec);
                 }
