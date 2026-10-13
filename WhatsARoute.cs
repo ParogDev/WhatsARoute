@@ -1013,7 +1013,7 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
     private double _nextChoiceScan;
     private string? _choiceKeyFor, _choiceKey, _choiceLineKey;   // _choice as matched (once per change), the held line's
     private string? _choiceWhy;   // the dialogue is open and no line matches _choice: which line was wanted, which were there
-    private static readonly Regex TravelVia = new(@"\bto travel to (.+?)[.!]?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex TravelVia = new(@"\bto travel to ([^.!?]+)",RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex Tags = new(@"<[^>]*>|[{}]", RegexOptions.Compiled);
     private static readonly Regex Spaces = new(@"[\s ]+", RegexOptions.Compiled);
 
@@ -1044,7 +1044,8 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
 
     /// <summary>
     /// The line to click, framed in the open NPC dialogue (any NPC: the line's own words decide). Looked up 4x per second
-    /// while the dialogue is open and no line is held; the held line's rect is read every frame so it follows the panel.
+    /// while the dialogue is open (a held line too: the dialogue may reuse its element); the held line's rect is read
+    /// every frame so it follows the panel.
     /// No line matching: <see cref="_choiceWhy"/> names the wanted line and the ones the dialogue has (route_state).
     /// </summary>
     private void DrawChoiceHighlight(Vector3 core, Vector3 glow, double time)
@@ -1057,14 +1058,11 @@ public sealed partial class WhatsARoute : BaseSettingsPlugin<WhatsARouteSettings
         {
             _nextChoiceScan = time + 0.25;
             _choiceLine = null;
-            var seen = new List<string>();
-            foreach (var l in d.NpcLines ?? [])
-            {
-                if (l == null) continue;
-                if (LineKey(l.Text) == want) { _choiceLine = l.Element; _choiceLineKey = want; break; }
-                seen.Add(l.Text ?? "");
-            }
-            _choiceWhy = _choiceLine != null ? null : $"no line of {d.NpcName ?? "the NPC"}'s dialogue is '{_choice}' (lines: {string.Join(" | ", seen)})";
+            var lines = d.NpcLines ?? [];
+            foreach (var l in lines)
+                if (l != null && LineKey(l.Text) == want) { _choiceLine = l.Element; _choiceLineKey = want; break; }
+            _choiceWhy = _choiceLine != null ? null
+                : $"no line of {d.NpcName ?? "the NPC"}'s dialogue is '{_choice}' (lines: {string.Join(" | ", lines.Where(l => l != null).Select(l => l.Text))})";
         }
         if (_choiceLine == null) return;
         var r = _choiceLine.GetClientRect();
