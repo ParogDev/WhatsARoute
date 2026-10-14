@@ -115,6 +115,10 @@
     "P3_4": [
       { "Target": "radar:Boss (2+ Passive)", "Label": "The Yeti: its Ice Tusks (Hilda's Book of Specialisation)" }
     ],
+    "P3_5": [
+      { "Target": "radar:Guaranteed unique", "Label": "Get the guaranteed unique on the Meditation Ridge", "Note": "F8 #3159 (2026-10-14): Radar's P3_5 Guaranteed unique row is P3_5/Medition_Ridge.tdt" },
+      { "Target": "travel:P3_6|radar:Ravine", "Label": "Head through the Kriar Peaks to the Ravine exit", "Note": "F8 #3159 (2026-10-14): InterludePart3 9 = 'Explore the Kriar Peaks.' Radar's P3_5 Ravine row is P3_5/Ravine_Exit_Transition.tdt: lead to the exit itself instead of exploring" }
+    ],
     "G2_12": [
       { "Target": "tile:*DreadnoughtArena*", "Label": "Jamanra, the Abomination (the Faridun Throne)", "Note": "2026-10-12: Radar keys its places as G2_12_1/G2_12_2, but the area is G2_12 now (WorldAreas), so the arena tile is named directly. Unverified live" }
     ],
